@@ -1695,6 +1695,48 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         }
       };
 
+      it('keeps a session cookie an auth hook renewed', async () => {
+        // The case this boundary exists for. Middleware that renews a session
+        // runs on both paths, so a genuine miss carries the refreshed cookie
+        // too. Rolling it back would make the trigger differ from a real miss
+        // and would quietly stop renewing sessions on those requests.
+        const withAuthHook = async (isRouteRegistered: boolean) => {
+          const server = serveAPI({
+            getRequestID: pinnedRequestID,
+            plugins: [
+              (host) => {
+                host.addHook('preHandler', async (_request, reply) => {
+                  reply.header('set-cookie', 'session=renewed; Path=/');
+                });
+              },
+            ],
+          });
+
+          if (isRouteRegistered) {
+            server.api.get('thing', (request) => request.trigger404());
+          }
+
+          await server.listen(await getPort(), 'localhost');
+
+          try {
+            return await fastifyOf(server).inject(apiRouteInjection);
+          } finally {
+            await server.stop();
+          }
+        };
+
+        const triggered = await withAuthHook(true);
+        const genuine = await withAuthHook(false);
+
+        expect(triggered.statusCode).toBe(404);
+        expect(triggered.headers['set-cookie']).toEqual(
+          genuine.headers['set-cookie'],
+        );
+        expect(String(triggered.headers['set-cookie'])).toContain(
+          'session=renewed',
+        );
+      });
+
       it('keeps a header the hook sets on both paths', async () => {
         const triggered = await withHooks(true);
         const genuine = await withHooks(false);
