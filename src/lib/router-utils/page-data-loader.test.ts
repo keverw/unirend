@@ -838,15 +838,30 @@ describe('HTTP-backed page data loader', () => {
     expect(result.data).toEqual({ fallback: 'malformed' });
   });
 
-  it('falls back to HTTP fetch when the SSR short-circuit result is not a page envelope', async () => {
-    const baseURL = startServer(() =>
-      Response.json(
+  it('returns an SSR short-circuit result that is not a page envelope, without re-fetching', async () => {
+    // The short-circuit answered, so the HTTP fetch must not run. It would
+    // invoke the very same handler a second time, repeating anything that
+    // handler did before answering, and the response the loader ends up using
+    // would come from the HTTP path rather than the one that already resolved
+    // the request. This matches the local-handler path, which likewise returns
+    // whatever envelope it got and only special-cases a page redirect.
+    //
+    // `type: 'api'` reaches here when a custom `notFoundHandler` answers a
+    // `request.trigger404()` with `createAPIErrorResponse()`, which
+    // `APINotFoundHandlerFn` allows, so the framework itself can produce it.
+    // The 404 shape is the one under test for that reason.
+    let httpHits = 0;
+
+    const baseURL = startServer(() => {
+      httpHits += 1;
+
+      return Response.json(
         createPageEnvelope({
           request_id: 'req_non_page_short_circuit',
           data: { fallback: 'api' },
         }),
-      ),
-    );
+      );
+    });
 
     const loader = createPageDataLoader(
       createDefaultPageDataLoaderConfig(baseURL),
@@ -857,13 +872,16 @@ describe('HTTP-backed page data loader', () => {
     const callHandler = mock(() => ({
       exists: true,
       result: {
-        status: 'success',
-        status_code: 200,
-        request_id: 'req_api_result',
+        status: 'error',
+        status_code: 404,
+        request_id: 'req_api_not_found',
         type: 'api',
-        data: { ignored: true },
+        data: null,
         meta: {},
-        error: null,
+        error: {
+          code: 'not_found',
+          message: 'Resource Not Found',
+        },
       },
     }));
 
@@ -886,8 +904,10 @@ describe('HTTP-backed page data loader', () => {
     })) as Record<string, any>;
 
     expect(callHandler).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe('success');
-    expect(result.data).toEqual({ fallback: 'api' });
+    expect(httpHits).toBe(0);
+    expect(result.type).toBe('api');
+    expect(result.status_code).toBe(404);
+    expect(result.error?.code).toBe('not_found');
   });
 
   it('merges ssr_request_context back into the SSR request during HTTP fetches', async () => {

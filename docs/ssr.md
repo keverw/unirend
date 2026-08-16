@@ -46,6 +46,7 @@
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
   - [Param Source Parity (Data Loader vs. API Routes):](#param-source-parity-data-loader-vs-api-routes)
   - [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
+    - [Which 404 to Reach For](#which-404-to-reach-for)
   - [Request Context Injection](#request-context-injection)
 - [Advanced Asset Request Paths](#advanced-asset-request-paths)
 - [Multi-App SSR Support](#multi-app-ssr-support)
@@ -1601,6 +1602,44 @@ Over HTTP, which is every API route handler and every page data request the brow
 
 The SSR internal short-circuit is scoped out of that guarantee, and the note at the end of this section says why.
 
+#### Which 404 to Reach For
+
+Three things produce a 404 on an SSR server, and they are not interchangeable. Two of them go through an envelope, and those are the ones you want for a page.
+
+| You want to say | Use | What the visitor gets |
+| --- | --- | --- |
+| This record does not exist, or you may not see it (no such user, no such post) | A 404 page envelope from the page data handler, via `createPageErrorResponse({ statusCode: 404, ... })`, identical on both paths | Your React 404 UI for that route, HTTP `404` |
+| This handler must look like it was never registered (chiefly a handler gated to one app bundle) | `return request.trigger404()` | The server's shared not-found envelope as the route's loader data, so its component renders your 404 state, HTTP `404` |
+| This route is not here (plugin and middleware level) | `return reply.callNotFound()` in a raw plugin route | An API path gets the envelope, a web path renders, HTTP `404` |
+
+The first two are the normal way to 404 a page, and they are the ones that keep your branding. Both put a `status_code` of `404` in the loader's envelope, the renderer lifts it to the response status, and your route's own component decides what a missing thing looks like. Because it is the envelope doing the work, a client-side navigation to the same URL renders the identical 404 state without a server round trip for the page shell.
+
+Which of the two you want comes down to **what is being hidden**, not to how private the data is. They overlap more than the table suggests.
+
+Gating a record on permission does not need `trigger404()`. What that case needs is for "this post does not exist" and "you may not see this post" to be the same response, and the best same-response is your own tailored one: `createPageErrorResponse` with `post_not_found` and a real title, returned identically on both paths. That keeps the copy, the `<title>`, and the description that make the page usable when the URL is shared or crawled, and consistency is all the property required. Build both from one helper so the two cannot drift apart later, which is the only way this actually breaks:
+
+```ts
+// Both paths return this, so "missing" and "forbidden" are the same answer.
+const postNotFound = (request: FastifyRequest) =>
+  APIResponseHelpers.createPageErrorResponse({
+    request,
+    statusCode: 404,
+    errorCode: 'post_not_found',
+    errorMessage: 'That post could not be found.',
+    pageMetadata: { title: 'Post not found', description: 'No such post.' },
+  });
+```
+
+`trigger404()` is for the level above that: hiding that the **handler is registered at all**. Its guarantee is byte-identity with an unregistered route, which is what you want when a handler belongs to one app bundle and is reachable from the others, and is why a hand-built envelope cannot substitute there. For a missing post the comparison is against your other post responses, not against a route that does not exist, so the generic server-wide answer buys nothing and costs you the copy. Reach for it when the secret is "this deployment has this handler," not "this row is private."
+
+`callNotFound()` is the Fastify-native way to say not-found, and it is the same idea as `trigger404()` one level up: it says this **HTTP request** matched no route, where `trigger404()` says this **page data handler** declines. So it goes straight to the page level instead of the data level.
+
+The catch is what "matched no route" means on an SSR server. Every page URL here is already unmatched. That is how SSR works: a `GET '*'` catch-all hands web requests to React, and the not-found handler catches the rest. So putting a request back on the not-found path does not hide it, it puts it back on the ordinary page-rendering path. The app renders, its loaders run and return real data, and the visitor gets the actual page with only the status forced to `404`. On a multi-bundle server, which page that is depends on the active bundle, since the render goes through `request.activeSSRApp`.
+
+`trigger404()` does not have this problem because it acts one level down, where the data is produced. The route's component still renders, exactly as it does above, but its loader envelope is the 404 one, so there is nothing real for it to show.
+
+So it is the wrong tool for either case above. A handler declining because the request is not for its app bundle is `trigger404()`. A post or a user that is missing, or that this visitor may not see, is one tailored envelope returned for both.
+
 Rules for using it:
 
 - **Return the value.** `return request.trigger404();` The `return` is what carries the control flow, and it makes the handler visibly stop. Nothing is thrown, so nothing lands in the error path or gets logged as a failure.
@@ -1613,7 +1652,7 @@ Rules for using it:
 - **A forgotten `return` still 404s.** If the call happened but the handler returned an ordinary value anyway, the 404 wins and the handler's value is discarded, in development and production alike. The withheld data never ships. The mistake is logged through `request.log.error` with `errorCode: 'trigger_404_missing_return'` naming the route, so it is loud without being a behavior difference.
 - **A throw is the one thing that escapes the 404.** If the handler throws after calling `trigger404()`, the request takes the ordinary error path and answers 500, the same as any other handler error. That is the one case where a caller can tell the route exists, since a genuine miss never answers 500. Return immediately after the call and keep anything that can fail above it.
 - **An already-sent response cannot be taken back.** If the handler sent a response before triggering, that response stands and the trigger is logged as `trigger_404_after_response_sent`. This is a handler bug, not a supported ordering.
-- **It exists only inside a handler.** Valid in API route handlers and page data handlers on both `SSRServer` and `APIServer`, whether registered on the server or by a plugin. Called from a plugin hook, middleware, or a raw plugin route it throws immediately rather than being silently ignored, since nothing there would observe the returned value. In a raw plugin route, `return reply.callNotFound()` instead, which on an SSR server is classified the same way: an API or page-data path gets the envelope, a web path renders the app's 404 page.
+- **It exists only inside a handler.** Valid in API route handlers and page data handlers on both `SSRServer` and `APIServer`, whether registered on the server or by a plugin. Called from a plugin hook, middleware, or a raw plugin route it throws immediately rather than being silently ignored, since nothing there would observe the returned value. In a raw plugin route, `return reply.callNotFound()` instead, which on an SSR server is classified the same way: an API or page-data path gets the envelope, a web path renders, and either way the status is `404`. See [Which 404 to Reach For](#which-404-to-reach-for) for when that is the right tool and when it is not.
 - **A page data handler gets the page, not the transport.** When a not-found handler answers a page data request, its third argument carries `pageData` with the `pageType`, `routeParams`, `queryParams`, `requestPath`, and `originalURL` the frontend asked for, and `request.url` is that frontend URL rather than `/api/v1/page_data/<type>`. This is the same whether the request missed over HTTP or was abandoned by a trigger during an SSR render, so it is safe to put in a response, and it is what a not-found page actually wants to name. A plain API route has no `pageData` and keeps its own URL.
 
   It is handed over as `params.pageData` and is never something to read off the request yourself. Unirend fills it from the loader's POST body on the HTTP path and from the loader context directly on the SSR short-circuit, which builds no HTTP request and has no body to read, so your handler sees one shape either way. It mirrors the params object a page data handler receives, but it is a subset of it: the four fields the frontend sent, plus the `pageType`. There is no `version`, since an unregistered page type has no registered version to name, and no `invocationOrigin`, since HTTP and short-circuit are the two things this is designed not to distinguish.

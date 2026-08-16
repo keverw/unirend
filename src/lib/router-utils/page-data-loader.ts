@@ -441,21 +441,30 @@ async function pageDataLoader({
             // Internal handler returned an envelope
             const result = outcome.result as PageResponseEnvelope;
 
-            if (result.type === 'page') {
-              if (
-                result.status === 'redirect' &&
-                result.type === 'page' &&
-                result.redirect
-              ) {
-                return processRedirectResponse(
-                  config,
-                  result as unknown as Record<string, unknown>,
-                  {},
-                );
-              }
-
-              return decorateWithSSROnlyData(result, {});
+            // Redirect handling is page-envelope only, since `redirect` is a
+            // page-envelope field.
+            if (
+              result.status === 'redirect' &&
+              result.type === 'page' &&
+              result.redirect
+            ) {
+              return processRedirectResponse(
+                config,
+                result as unknown as Record<string, unknown>,
+                {},
+              );
             }
+
+            // Returned whatever its `type`, matching the local-handler path
+            // below, which also returns the envelope as-is. Gating this on
+            // `type === 'page'` dropped an `api` envelope out of the block and
+            // into the HTTP fetch below, which invoked the very same handler a
+            // second time over HTTP — repeating any side effects it ran, and
+            // answering from the HTTP path rather than the short-circuit. A
+            // custom `notFoundHandler` answering a `request.trigger404()` with
+            // `createAPIErrorResponse()` produces exactly that envelope, and it
+            // is a legal return of `APINotFoundHandlerFn`.
+            return decorateWithSSROnlyData(result, {});
           } else if (DEBUG_PAGE_LOADER) {
             // No internal handler; fall back to HTTP fetch
             // eslint-disable-next-line no-console

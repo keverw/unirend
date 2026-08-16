@@ -136,6 +136,22 @@ const delegatingRoutes: ServerPlugin<'ssr'> = (pluginHost) => {
   pluginHost.get('/api/v1/plugin-delegates', (_request, reply) => {
     return reply.callNotFound();
   });
+
+  // The three below sit on paths the app renders as something other than its
+  // own 404 page, which is what makes them able to fail. `/plugin-missing-page`
+  // above cannot on its own: the fixture answers 404 for any path containing
+  // "missing", so a status assertion there would pass either way.
+  pluginHost.get('/plugin-gated-page', (_request, reply) => {
+    return reply.callNotFound();
+  });
+
+  pluginHost.get('/plugin-redirect-me', (_request, reply) => {
+    return reply.callNotFound();
+  });
+
+  pluginHost.get('/plugin-boom-500', (_request, reply) => {
+    return reply.callNotFound();
+  });
 };
 
 const delegatingAPIRoutes: ServerPlugin<'api'> = (pluginHost) => {
@@ -393,6 +409,64 @@ describe('SSR not-found handling for requests the catch-all does not match', () 
     expect(response.contentType).toContain('text/html');
     expect(response.body).toContain('app 404 page');
     expect(response.body).not.toContain('Route GET:');
+  });
+
+  it('answers 404 for a GET reply.callNotFound() on a URL the app renders', async () => {
+    // A plugin route delegating a GET is asking for the not-found path, so the
+    // answer is 404 whatever the render decided — the same rule a non-GET miss
+    // follows. Without it the render's own status stood, so a plugin hiding a
+    // page whose URL the app really routes answered 200 with that page.
+    //
+    // The status is what is forced; the body stays the render, which is what
+    // keeps the app's own branded 404 page on every other route into here.
+    await startServer([delegatingRoutes]);
+
+    const response = await request('GET', '/plugin-gated-page');
+
+    expect(response.status).toBe(404);
+    expect(response.contentType).toContain('text/html');
+    expect(response.cacheControl).toBe('no-store');
+    expect(response.body).not.toContain('Route GET:');
+  });
+
+  it('drops the Location of a redirect rendered for a GET reply.callNotFound()', async () => {
+    // The plugin withheld the page, so handing the client a place to go next is
+    // the one thing it did not mean. Matches the non-GET miss, which drops it
+    // for the stronger reason that the client would repeat its own method there.
+    await startServer([delegatingRoutes]);
+
+    const response = await request('GET', '/plugin-redirect-me');
+
+    expect(response.status).toBe(404);
+    expect(response.location).toBe('');
+  });
+
+  it('still answers 5xx for a GET reply.callNotFound() whose render failed', async () => {
+    // The 404 override exists to stop a success or a redirect being invented
+    // for a request nothing claimed. A server error is neither, and masking it
+    // would hide a real failure and skip get500ErrorPage.
+    await startServer([delegatingRoutes]);
+
+    const response = await request('GET', '/plugin-boom-500');
+
+    expect(response.status).toBe(500);
+    expect(response.body).toContain('custom 500');
+  });
+
+  it('leaves an ordinary GET through the catch-all alone', async () => {
+    // The catch-all and the not-found handler share handleUnmatchedRequest, so
+    // this pins that the override keys on the not-found path rather than on
+    // that shared entry point. Otherwise every page on the server would 404.
+    await startServer([delegatingRoutes]);
+
+    const rendered = await request('GET', '/an-ordinary-page');
+    const redirected = await request('GET', '/redirect-me');
+
+    expect(rendered.status).toBe(200);
+    expect(rendered.body).toContain('app rendered');
+
+    expect(redirected.status).toBe(302);
+    expect(redirected.location).toBe('/somewhere-else');
   });
 
   it('classifies an API plugin route that returns reply.callNotFound()', async () => {

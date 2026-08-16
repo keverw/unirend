@@ -2244,8 +2244,41 @@ export class SSRServer<
     // the app's own 404 page.
     const isReadMethod = request.method === 'GET' || request.method === 'HEAD';
 
+    // Whether the answer is a 404 whatever the render decides, which is a
+    // different question from what method to render with.
+    //
+    // Everything on the not-found path renders, so a web 404 is the app's own
+    // 404 page, branded and hydrated, on every route into it. That is the whole
+    // premise of an SSR server and it is what makes the status the only thing
+    // worth overriding here.
+    //
+    // `request.is404` is what tells this function's two entry points apart,
+    // since it serves both: true for a method miss and for a plugin route
+    // returning `reply.callNotFound()`, false for the `GET '*'` catch-all whose
+    // GETs are ordinary page requests and must keep the render's own status.
+    // Without it a delegated GET kept that status too, so a plugin hiding a page
+    // whose URL the app renders answered 200 with that page, and a redirect the
+    // render produced was forwarded. (Fastify clears `routeOptions` before the
+    // not-found handler runs, so a delegation and a genuine miss cannot be told
+    // apart there. `is404` is the signal that survives, and both want the same
+    // 404 anyway.)
+    //
+    // `|| !isReadMethod` because a non-read method that reached here is
+    // unmatched whatever `is404` says, and the override must not depend on
+    // which entry point noticed.
+    //
+    // What this does not do is force the *body*. The render is of the URL that
+    // was asked for, and its loaders run normally, so when the app really
+    // routes it the caller gets that page's real markup under a 404. Gating
+    // therefore belongs in the page data handler that produces the page's data,
+    // via `request.trigger404()`, or in a hook that sends its own response.
+    // Note that a hook reaching for `reply.callNotFound()` lands right back
+    // here and renders like any other delegation, so it is not a way out.
+    const isForcedNotFound = request.is404 === true || !isReadMethod;
+
     return this.handleSSRRequest(request, reply, {
       isUnmatchedNonReadMethod: !isReadMethod,
+      isForcedNotFound,
     });
   }
 
@@ -2256,24 +2289,29 @@ export class SSRServer<
    * Extracted from the `GET '*'` catch-all so the not-found handler can serve
    * the identical response for a request the catch-all never saw.
    *
-   * Two callers, and the second one is why the rules below exist. The
-   * catch-all only ever passes a GET. `handleUnmatchedRequest` passes anything
-   * that reached the server, including a POST or a DELETE that no route
-   * claimed, with `isUnmatchedNonReadMethod` set. Those requests are rendered
-   * so the caller gets the app's own 404 page rather than a bare envelope,
-   * which means app code runs for a request the server never routed, and that
-   * is the thing this function has to bound:
+   * One caller, `handleUnmatchedRequest`, which is itself reached two ways and
+   * that is why the rules below exist. Through the `GET '*'` catch-all it is an
+   * ordinary page request and both flags are false. Through the not-found
+   * handler it is anything that reached the server: a POST or a DELETE that no
+   * route claimed, and any method a plugin route handed back with
+   * `reply.callNotFound()`. Those requests are rendered so the caller gets
+   * the app's own 404 page rather than a bare envelope, which means app code
+   * runs for a request the server never routed, and that is the thing this
+   * function has to bound:
    *
    * 1. **The render never sees a non-read method.** React Router runs a
    *    matched route's `action` for any non-GET request, and route actions are
    *    not part of this framework's model. Coerced to GET below, at the one
-   *    point every render passes through.
+   *    point every render passes through. Keyed on
+   *    `isUnmatchedNonReadMethod`, which is about the method alone.
    * 2. **The answer is 404 whatever the render decided.** A POST that no route
    *    claimed, to a URL that happens to render, must not come back 200, and a redirect
    *    must not come back at all, since the client sent a POST and a 307 would
    *    tell it to repeat that POST elsewhere. Applied to both the `page` and
    *    the `response` result, since a custom server entry can answer through
-   *    either.
+   *    either. Keyed on `isForcedNotFound`, which is the separate question: a
+   *    GET a plugin delegated with `reply.callNotFound()` is a 404 too, even
+   *    though its method needed no coercion.
    * 3. **A 5xx is the exception, and the only one.** Rendering runs the app's
    *    loaders and components, so it can fail the same way a GET of that URL
    *    would. Answering 404 there would hide a real server error and skip
@@ -2291,13 +2329,20 @@ export class SSRServer<
     options: {
       /**
        * Set for a non-GET/HEAD request that no route claimed. Renders as a GET
-       * so React Router cannot run a route action, and forces the response to
-       * 404 whatever the render produced. See `handleUnmatchedRequest`.
+       * so React Router cannot run a route action. See
+       * `handleUnmatchedRequest`.
        */
       isUnmatchedNonReadMethod?: boolean;
+      /**
+       * Set for any request that reached the not-found path, whatever its
+       * method. Forces the response to 404 whatever the render produced, apart
+       * from a 5xx. See `handleUnmatchedRequest`.
+       */
+      isForcedNotFound?: boolean;
     } = {},
   ): Promise<unknown> {
-    const { isUnmatchedNonReadMethod = false } = options;
+    const { isUnmatchedNonReadMethod = false, isForcedNotFound = false } =
+      options;
     // Get active app based on request.activeSSRApp (defaults to '__default__')
     const appKey = request.activeSSRApp || '__default__';
     const appConfig = this.apps.get(appKey);
@@ -2573,11 +2618,12 @@ export class SSRServer<
       if (renderResult.resultType === 'page') {
         // ---> Extract status code from render result
         //
-        // A non-GET/HEAD request no route claimed is a 404 whatever the render
-        // decided. The render ran as a GET, so for an unknown URL the app's own
-        // 404 page already produced 404 and this changes nothing; the override
-        // is what stops a POST to a URL that *does* render (a real page) coming
-        // back 200.
+        // A request that reached the not-found path is a 404 whatever the
+        // render decided. For an unknown URL the app's own 404 page already
+        // produced 404 and this changes nothing; the override is what stops a
+        // request to a URL that *does* render (a real page) coming back 200.
+        // That covers a POST no route claimed and, just as much, a GET a plugin
+        // route handed back with `reply.callNotFound()` to withhold the page.
         //
         // A 5xx is the exception, and the only one. The override exists to stop
         // a success or a redirect being invented for a request no route
@@ -2591,7 +2637,7 @@ export class SSRServer<
         // not answer 404 instead.
         const renderedStatusCode = renderResult.statusCode || 200;
         const statusCode =
-          isUnmatchedNonReadMethod && renderedStatusCode < 500
+          isForcedNotFound && renderedStatusCode < 500
             ? 404
             : renderedStatusCode;
 
@@ -2678,8 +2724,8 @@ export class SSRServer<
         //
         // A `response` result is not only redirects: the type is a bare
         // `Response`, and a custom server entry may return any status through
-        // it. So the unmatched non-read override applies here too, with no
-        // exception for redirects.
+        // it. So the not-found override applies here too, with no exception for
+        // redirects.
         //
         // A redirect looks like the one status worth forwarding, and it is the
         // one that must not be. The render ran as a GET, but the *client* sent
@@ -2690,13 +2736,16 @@ export class SSRServer<
         // Location points. 301 and 302 preserve the method for everything
         // except POST, so a DELETE follows as a DELETE. Rendering as a GET
         // stops an action running on this server and does nothing about what
-        // the browser does next.
+        // the browser does next. A GET delegated with `reply.callNotFound()`
+        // has the same problem in a quieter form: the plugin withheld the page,
+        // so handing back a place to go next is the one thing it did not mean.
         //
-        // Every non-read miss is therefore a plain 404, and the Location is
-        // dropped below so nothing is left for a client to follow. A 5xx is
-        // passed through for the same reason as on the page path above.
+        // Every request on the not-found path is therefore a plain 404, and the
+        // Location is dropped below so nothing is left for a client to follow.
+        // A 5xx is passed through for the same reason as on the page path
+        // above.
         const isForced404 =
-          isUnmatchedNonReadMethod && renderResult.response.status < 500;
+          isForcedNotFound && renderResult.response.status < 500;
 
         const responseStatusCode = isForced404
           ? 404
