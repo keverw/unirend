@@ -88,12 +88,31 @@ export class MarkerHelpers extends APIResponseHelpers {
   }
 }
 
-/** The body a page-data POST carries, shared by every page-data cell. */
+/**
+ * The body a page-data POST carries, shared by every page-data cell.
+ *
+ * Every field carries a distinct non-empty value on purpose. These four are
+ * what `pageData` hands a not-found handler, and with `{}` params and a
+ * `request_path` equal to `original_url` the assertions could not tell the
+ * fields apart: dropping `routeParams`, swapping it with `queryParams`, or
+ * swapping `requestPath` with `originalURL` would all still pass. The query
+ * string on `original_url` and not on `request_path` is what a real loader
+ * sends, and it is also what pins `request.url` to the full frontend URL.
+ */
 export const pageDataBody = {
-  route_params: {},
-  query_params: {},
+  route_params: { id: '42' },
+  query_params: { tab: 'billing' },
   request_path: '/thing',
-  original_url: '/thing',
+  original_url: '/thing?tab=billing',
+};
+
+/** `pageData` as a not-found handler should receive it for {@link pageDataBody}. */
+export const expectedPageDataContext = {
+  pageType: 'thing',
+  routeParams: { id: '42' },
+  queryParams: { tab: 'billing' },
+  requestPath: '/thing',
+  originalURL: '/thing?tab=billing',
 };
 
 /** One `request.log.*` call, as the Unirend logger adapter hands it over. */

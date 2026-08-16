@@ -38,6 +38,7 @@ import {
   createCapturingLogging,
   findLogRecord,
   pageDataBody,
+  expectedPageDataContext,
   pinnedRequestID,
   type CapturedResponse,
 } from './trigger-404-equality-harness';
@@ -972,35 +973,40 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
 
   /**
    * The handler ran on the triggered server rather than its output being
-   * reproduced somewhere else. `spies[0]` is the registered server, built first.
+   * reproduced somewhere else, and it ran on the unregistered server with the
+   * same arguments. `spies[0]` is the registered server, built first, and
+   * `spies[1]` the bare one.
+   *
+   * Both are checked, not only the triggered side. The two response bodies are
+   * already compared byte for byte, but none of this reaches the body, so a
+   * `pageData` or a `request.url` that differed between a trigger and a genuine
+   * miss would otherwise pass every cell in the matrix. That equality is the
+   * feature, so it is asserted directly.
    */
   const expectHandlerSpyArgs = (
-    spy: ReturnType<typeof createNotFoundSpy>,
+    spies: Array<ReturnType<typeof createNotFoundSpy>>,
     expected: {
       url: string;
       isPageData: boolean;
       HelpersClass: typeof APIResponseHelpers;
     },
   ) => {
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0].url).toBe(expected.url);
-    expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
-    expect(spy.mock.calls[0][2]).toEqual({
+    expect(spies).toHaveLength(2);
+
+    const expectedParams = {
       APIResponseHelpers: expected.HelpersClass,
       // The frontend's description of the page data request, or undefined for
       // a plain API route. Asserted here rather than in a test of its own so
-      // every custom-handler cell in the matrix checks it, on both the
-      // triggered and the unregistered server.
-      pageData: expected.isPageData
-        ? {
-            pageType: 'thing',
-            routeParams: {},
-            queryParams: {},
-            requestPath: '/thing',
-            originalURL: '/thing',
-          }
-        : undefined,
-    });
+      // every custom-handler cell in the matrix checks it.
+      pageData: expected.isPageData ? expectedPageDataContext : undefined,
+    };
+
+    for (const spy of spies) {
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].url).toBe(expected.url);
+      expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
+      expect(spy.mock.calls[0][2]).toEqual(expectedParams);
+    }
   };
 
   describe('API route', () => {
@@ -1037,7 +1043,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         type: 'api',
         errorCode: 'custom_not_found',
       });
-      expectHandlerSpyArgs(spies[0], {
+      expectHandlerSpyArgs(spies, {
         url: '/api/v1/thing',
         isPageData: false,
         HelpersClass: APIResponseHelpers,
@@ -1066,7 +1072,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         type: 'api',
         errorCode: 'custom_not_found',
       });
-      expectHandlerSpyArgs(spies[0], {
+      expectHandlerSpyArgs(spies, {
         url: '/api/v1/thing',
         isPageData: false,
         HelpersClass: APIResponseHelpers,
@@ -1139,7 +1145,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         errorCode: 'custom_not_found',
         helpersMarker: API_HELPERS_MARKER,
       });
-      expectHandlerSpyArgs(spies[0], {
+      expectHandlerSpyArgs(spies, {
         url: '/api/v1/thing',
         isPageData: false,
         HelpersClass: MarkerHelpers,
@@ -1183,8 +1189,8 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       });
       // isPageData true is what proves the page branch was reached through the
       // shared path rather than the API one.
-      expectHandlerSpyArgs(spies[0], {
-        url: '/thing',
+      expectHandlerSpyArgs(spies, {
+        url: '/thing?tab=billing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });
@@ -1212,8 +1218,8 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         type: 'page',
         errorCode: 'custom_not_found',
       });
-      expectHandlerSpyArgs(spies[0], {
-        url: '/thing',
+      expectHandlerSpyArgs(spies, {
+        url: '/thing?tab=billing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });
@@ -1285,8 +1291,8 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         errorCode: 'custom_not_found',
         helpersMarker: PAGE_HELPERS_MARKER,
       });
-      expectHandlerSpyArgs(spies[0], {
-        url: '/thing',
+      expectHandlerSpyArgs(spies, {
+        url: '/thing?tab=billing',
         isPageData: true,
         HelpersClass: MarkerHelpers,
       });

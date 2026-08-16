@@ -32,6 +32,7 @@ import {
   assertIndistinguishable,
   captureResponse,
   pageDataBody,
+  expectedPageDataContext,
   pinnedRequestID,
   type CapturedResponse,
 } from './trigger-404-equality-harness';
@@ -88,14 +89,19 @@ async function writeBuild(buildDir: string): Promise<void> {
         };
       }
 
+      // The loader context a real render would hand over. Route params are
+      // pinned rather than empty and query params are read off the URL, so the
+      // short-circuit's page context has a distinct value in every field and a
+      // test can tell the four apart. Matches the pageDataBody fixture the HTTP
+      // cells post when the request carries ?tab=billing.
       const outcome = await SSRHelpers.handlers.callHandler({
         originalRequest: SSRHelpers.fastifyRequest,
         controlledReply: SSRHelpers.controlledReply,
         pageType,
-        routeParams: {},
-        queryParams: {},
+        routeParams: { id: '42' },
+        queryParams: Object.fromEntries(url.searchParams),
         requestPath: url.pathname,
-        originalURL: url.pathname,
+        originalURL: url.pathname + url.search,
       });
 
       const envelope = outcome.result;
@@ -224,31 +230,33 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
     };
   };
 
+  /**
+   * Same as the APIServer suite: both servers are checked, since none of this
+   * reaches the response body the cells compare byte for byte.
+   */
   const expectHandlerSpyArgs = (
-    spy: ReturnType<typeof createNotFoundSpy>,
+    spies: Array<ReturnType<typeof createNotFoundSpy>>,
     expected: {
       url: string;
       isPageData: boolean;
       HelpersClass: typeof APIResponseHelpers;
     },
   ) => {
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy.mock.calls[0][0].url).toBe(expected.url);
-    expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
-    expect(spy.mock.calls[0][2]).toEqual({
+    expect(spies).toHaveLength(2);
+
+    const expectedParams = {
       APIResponseHelpers: expected.HelpersClass,
-      // Same as the APIServer suite: the frontend's description of the page
-      // data request, identical on the triggered and unregistered servers.
-      pageData: expected.isPageData
-        ? {
-            pageType: 'thing',
-            routeParams: {},
-            queryParams: {},
-            requestPath: '/thing',
-            originalURL: '/thing',
-          }
-        : undefined,
-    });
+      // The frontend's description of the page data request, identical on the
+      // triggered and unregistered servers.
+      pageData: expected.isPageData ? expectedPageDataContext : undefined,
+    };
+
+    for (const spy of spies) {
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0].url).toBe(expected.url);
+      expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
+      expect(spy.mock.calls[0][2]).toEqual(expectedParams);
+    }
   };
 
   describe('API route', () => {
@@ -288,7 +296,7 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
         type: 'api',
         errorCode: 'custom_not_found',
       });
-      expectHandlerSpyArgs(spies[0], {
+      expectHandlerSpyArgs(spies, {
         url: '/api/v1/thing',
         isPageData: false,
         HelpersClass: APIResponseHelpers,
@@ -354,8 +362,8 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
       });
       // isPageData true is what proves the page branch was reached through the
       // shared path rather than the API one.
-      expectHandlerSpyArgs(spies[0], {
-        url: '/thing',
+      expectHandlerSpyArgs(spies, {
+        url: '/thing?tab=billing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });
@@ -449,6 +457,59 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
       );
       expect(internal.type).toBe('page');
       expect((internal.error as { code: string }).code).toBe('not_found');
+    });
+
+    /**
+     * The page context on the path that builds it a second way.
+     *
+     * Every other cell reaches a not-found handler over HTTP, where `pageData`
+     * is derived from the loader's POST body. This path builds no HTTP request
+     * at all: `callHandler()` hands its own loader context to the resolver
+     * directly. So the two are separate implementations of the same promise,
+     * and the response body the sibling cells compare carries none of it, which
+     * leaves this the only thing that pins the second one.
+     *
+     * The request is `GET /thing?tab=billing`, so the context the render passes
+     * is the same one the HTTP fixture posts, and `request.url` is the frontend
+     * URL rather than the page request's path.
+     */
+    it('hands the frontend page context to a custom notFoundHandler', async () => {
+      const notFoundHandler = createNotFoundSpy();
+      const server = await start(
+        serveSSRBuilt(buildDir, {
+          getRequestID: pinnedRequestID,
+          APIHandling: { notFoundHandler },
+        }),
+      );
+
+      server.pageDataHandler.register('thing', (request) =>
+        request.trigger404(),
+      );
+
+      const rendered = await fastifyOf(server).inject({
+        method: 'GET',
+        url: '/thing?tab=billing',
+      });
+
+      expect(rendered.statusCode).toBe(404);
+      expect(notFoundHandler).toHaveBeenCalledTimes(1);
+
+      const [request, isPageData, params] = notFoundHandler.mock.calls[0];
+
+      expect(isPageData).toBe(true);
+      expect(params.pageData).toEqual(expectedPageDataContext);
+      // The page the visitor asked for, not `/thing`, and not the page data
+      // endpoint. Identical to what the HTTP cells assert.
+      expect(request.url).toBe('/thing?tab=billing');
+      // Removed here exactly as they are on the HTTP path. Cast because the
+      // type omits them, which is the guarantee being checked at runtime.
+      expect(
+        (request as unknown as { params?: unknown }).params,
+      ).toBeUndefined();
+      expect(
+        (request as unknown as { routeOptions?: { url?: string } }).routeOptions
+          ?.url,
+      ).toBeUndefined();
     });
 
     it('carries a custom notFoundHandler onto the internal path too', async () => {
