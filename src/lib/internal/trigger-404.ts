@@ -165,8 +165,29 @@ export function openTrigger404Scope(reply?: FastifyReply): Trigger404Scope {
   return {
     isOpen: true,
     wasRequested: false,
-    headerSnapshot: reply ? { ...reply.getHeaders() } : undefined,
+    headerSnapshot: reply ? snapshotReplyHeaders(reply) : undefined,
   };
+}
+
+/**
+ * Copies the reply's headers, array values included.
+ *
+ * A shallow spread is not enough. Fastify stores a multi-valued `Set-Cookie` as
+ * an array and *appends* to that same array on the next `reply.header()` call,
+ * so a snapshot holding the array by reference grows along with it: a handler
+ * that sets a cookie and then abandons the request would have that cookie
+ * restored onto the 404, which is the tell the rollback exists to remove. Only
+ * reached when a hook set two or more cookies before the handler ran, since a
+ * single one is stored as a string and copies by value.
+ */
+function snapshotReplyHeaders(reply: FastifyReply): Record<string, unknown> {
+  const snapshot: Record<string, unknown> = {};
+
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    snapshot[name] = Array.isArray(value) ? [...value] : value;
+  }
+
+  return snapshot;
 }
 
 /**
