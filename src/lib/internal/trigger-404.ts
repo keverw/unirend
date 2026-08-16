@@ -15,6 +15,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import type { PageDataNotFoundContext } from '../types';
 import {
   describeHandlerResult,
   resolveAPINotFoundResponse,
@@ -275,6 +276,14 @@ export interface Trigger404CheckOptions {
    * resolves a page one.
    */
   classification?: { isAPI: boolean; isPageData: boolean };
+  /**
+   * The frontend's description of this page data request, passed by the SSR
+   * short-circuit. That path runs on the page request and builds no HTTP
+   * request, so there is no loader body to read it from, and without it a
+   * not-found handler would see the page URL where the HTTP fallback shows
+   * the page data one.
+   */
+  pageDataContext?: PageDataNotFoundContext;
   pageType?: string;
   version?: number;
 }
@@ -295,6 +304,7 @@ export async function checkTrigger404({
   handlerResult,
   route,
   classification,
+  pageDataContext,
   pageType,
   version,
 }: Trigger404CheckOptions): Promise<Trigger404Outcome> {
@@ -369,6 +379,7 @@ export async function checkTrigger404({
     // is honored the same way a genuine miss would honor it.
     HelpersClass: getAPIResponseHelpersClass(request),
     classification,
+    pageDataContext,
     request,
     reply,
   });

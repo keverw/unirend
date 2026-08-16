@@ -9,8 +9,8 @@ const FAKE_BUILD_DIR = '/fake/build';
  * Coverage for `defineAppBundles()`.
  *
  * Two halves. The compile-time block asserts what the helper exists for: a key
- * that was never declared does not type-check, which is what turns a silently
- * fail-open gate into a build error. The runtime blocks cover the checks the
+ * that was never declared does not type-check, which is what turns a gate that
+ * silently stopped working into a build error. The runtime blocks cover the checks the
  * types cannot make — keys arriving from configuration, and a request that has
  * no active bundle at all.
  */
@@ -290,6 +290,30 @@ describe('AppBundles.is()', () => {
     );
   });
 
+  it('rejects a key that was never declared', () => {
+    // The types stop checking once the list came from configuration, and this
+    // is the method the documented gate calls. A silent false there would 404
+    // every request to the route rather than gating it.
+    const widened = defineAppBundles(...(['marketing'] as string[]));
+
+    expect(() =>
+      widened.is(requestWithActiveBundle('marketing'), 'typo-nobody-declared'),
+    ).toThrow(/was passed to is\(\) but was not declared/);
+    expect(() =>
+      widened.is(requestWithActiveBundle('marketing'), 'typo-nobody-declared'),
+    ).toThrow(/Declared keys: marketing/);
+  });
+
+  it('rejects an undeclared key inside an array', () => {
+    const widened = defineAppBundles(...(['marketing'] as string[]));
+
+    expect(() =>
+      widened.is(requestWithActiveBundle('marketing'), [
+        'marketing',
+        'typo-nobody-declared',
+      ]),
+    ).toThrow(/was passed to is\(\) but was not declared/);
+  });
   it('throws when the request has no active bundle', () => {
     // What an APIServer request looks like: no SSR decoration at all. A silent
     // false would 404 every gated route with nothing to explain it.
@@ -397,7 +421,7 @@ describe('AppBundles.match()', () => {
         { 'typo-nobody-declared': 'a' },
         'b',
       ),
-    ).toThrow(/was used as a case in match\(\)/);
+    ).toThrow(/was passed to match\(\) but was not declared/);
     expect(() =>
       widened.match(
         requestWithActiveBundle('marketing'),
@@ -419,6 +443,6 @@ describe('AppBundles.match()', () => {
         { marketing: 'a', 'typo-nobody-declared': 'b' },
         'c',
       ),
-    ).toThrow(/was used as a case in match\(\)/);
+    ).toThrow(/was passed to match\(\) but was not declared/);
   });
 });

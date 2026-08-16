@@ -10,6 +10,12 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import getPort from 'get-port';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type {
+  NotFoundRequest,
+  APINotFoundHandlerParams,
+  ControlledReply,
+  PluginHostInstance,
+} from '../types';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTempDir } from 'lifecycleion/tmp-dir';
@@ -18,7 +24,6 @@ import { serveAPI, servePlain } from '../api';
 import { StaticWebServer } from './static-web-server';
 import type { APIServer } from './api-server';
 import { APIResponseHelpers } from '../../api-envelope';
-import type { ControlledReply, PluginHostInstance } from '../types';
 import {
   DataLoaderServerHandlerHelpers,
   type PageDataHandler,
@@ -343,9 +348,9 @@ describe('trigger404 on APIServer', () => {
   it('routes a triggered 404 through a custom notFoundHandler', async () => {
     const notFoundHandler = mock(
       (
-        request: FastifyRequest,
+        request: NotFoundRequest,
         _isPageData: boolean | undefined,
-        params: { APIResponseHelpers: typeof APIResponseHelpers },
+        params: APINotFoundHandlerParams<typeof APIResponseHelpers>,
       ) =>
         params.APIResponseHelpers.createAPIErrorResponse({
           request,
@@ -942,9 +947,9 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
   const createNotFoundSpy = () =>
     mock(
       (
-        request: FastifyRequest,
+        request: NotFoundRequest,
         isPageData: boolean | undefined,
-        params: { APIResponseHelpers: typeof APIResponseHelpers },
+        params: APINotFoundHandlerParams<typeof APIResponseHelpers>,
       ) =>
         isPageData
           ? params.APIResponseHelpers.createPageErrorResponse({
@@ -982,6 +987,19 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
     expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
     expect(spy.mock.calls[0][2]).toEqual({
       APIResponseHelpers: expected.HelpersClass,
+      // The frontend's description of the page data request, or undefined for
+      // a plain API route. Asserted here rather than in a test of its own so
+      // every custom-handler cell in the matrix checks it, on both the
+      // triggered and the unregistered server.
+      pageData: expected.isPageData
+        ? {
+            pageType: 'thing',
+            routeParams: {},
+            queryParams: {},
+            requestPath: '/thing',
+            originalURL: '/thing',
+          }
+        : undefined,
     });
   };
 
@@ -1166,7 +1184,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       // isPageData true is what proves the page branch was reached through the
       // shared path rather than the API one.
       expectHandlerSpyArgs(spies[0], {
-        url: '/api/v1/page_data/thing',
+        url: '/thing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });
@@ -1195,7 +1213,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         errorCode: 'custom_not_found',
       });
       expectHandlerSpyArgs(spies[0], {
-        url: '/api/v1/page_data/thing',
+        url: '/thing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });
@@ -1268,7 +1286,7 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         helpersMarker: PAGE_HELPERS_MARKER,
       });
       expectHandlerSpyArgs(spies[0], {
-        url: '/api/v1/page_data/thing',
+        url: '/thing',
         isPageData: true,
         HelpersClass: MarkerHelpers,
       });
@@ -1440,6 +1458,261 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
         await server.stop();
       }
     };
+
+    describe('routing state a custom notFoundHandler can see', () => {
+      /**
+       * Both paths must present the same request shape, or a custom handler
+       * that read routing state would answer differently for a triggered 404
+       * than for a real one and give the gated route away.
+       *
+       * They differ at the source: a genuine miss carries Fastify's wildcard
+       * params, no route URL, and `is404 === true`, while a trigger carries
+       * the params and URL of the route that matched. Faking a miss on the
+       * trigger side was tried and abandoned, since the real `routeOptions`
+       * holds Fastify's own 404 handler, schema, and config, and a stub of it
+       * makes `routeOptions.config` throw where a real miss would not.
+       *
+       * So the resolver strips all three for every caller instead. These
+       * assert the two sides match, and that what they match on is the
+       * stripped shape rather than one side quietly winning.
+       */
+      const seenByHandler = async (isRouteRegistered: boolean) => {
+        const seen: Record<string, unknown> = {};
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          notFoundHandler: (request, isPageData, { APIResponseHelpers }) => {
+            // Cast because the type omits these, which is the guarantee.
+            // The read is what proves the runtime agrees.
+            seen.params = (request as unknown as { params?: unknown }).params;
+            // Cast because the type now says this is always undefined,
+            // which is the guarantee. The read is what proves it at runtime.
+            seen.routeURL = (
+              request as unknown as { routeOptions?: { url?: string } }
+            ).routeOptions?.url;
+            seen.url = request.url;
+
+            return APIResponseHelpers.createAPIErrorResponse({
+              request,
+              statusCode: 404,
+              errorCode: 'not_found',
+              errorMessage: 'Not found',
+            });
+          },
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('users/:id', (request) => request.trigger404());
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          await fastifyOf(server).inject({
+            method: 'GET',
+            url: '/api/v1/users/123',
+          });
+
+          return seen;
+        } finally {
+          await server.stop();
+        }
+      };
+
+      const seenForPageData = async (isHandlerRegistered: boolean) => {
+        const seen: Record<string, unknown> = {};
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          notFoundHandler: (request, isPageData, { APIResponseHelpers }) => {
+            // Cast because the type omits these, which is the guarantee.
+            // The read is what proves the runtime agrees.
+            seen.params = (request as unknown as { params?: unknown }).params;
+            // Cast because the type now says this is always undefined,
+            // which is the guarantee. The read is what proves it at runtime.
+            seen.routeURL = (
+              request as unknown as { routeOptions?: { url?: string } }
+            ).routeOptions?.url;
+            seen.isPageData = isPageData;
+
+            return APIResponseHelpers.createPageErrorResponse({
+              request,
+              statusCode: 404,
+              errorCode: 'not_found',
+              errorMessage: 'Not found',
+              pageMetadata: { title: 'Not found', description: 'Not found' },
+            });
+          },
+        });
+
+        if (isHandlerRegistered) {
+          server.pageDataHandler.register('thing', (request) =>
+            request.trigger404(),
+          );
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          await fastifyOf(server).inject(pageDataInjection);
+
+          return seen;
+        } finally {
+          await server.stop();
+        }
+      };
+
+      it('presents the same shape on a parameterized route', async () => {
+        const triggered = await seenByHandler(true);
+        const genuine = await seenByHandler(false);
+
+        expect(triggered).toEqual(genuine);
+
+        // Named explicitly, so a change that made both sides equally wrong
+        // still fails rather than passing on sameness alone.
+        expect(triggered.url).toBe('/api/v1/users/123');
+        expect(triggered.params).toBeUndefined();
+        expect(triggered.routeURL).toBeUndefined();
+      });
+
+      it('presents the same shape on page data', async () => {
+        const triggered = await seenForPageData(true);
+        const genuine = await seenForPageData(false);
+
+        expect(triggered).toEqual(genuine);
+
+        expect(triggered.isPageData).toBe(true);
+        expect(triggered.params).toBeUndefined();
+        expect(triggered.routeURL).toBeUndefined();
+      });
+    });
+
+    describe('a page data request that did not come from a loader', () => {
+      /**
+       * `pageData` is derived from the loader's POST body, so a direct call
+       * with no body has nothing to derive from. It is undefined there and
+       * `request.url` keeps the endpoint URL, since there is no frontend view
+       * to report. That is the fallback the docs tell a handler to write.
+       *
+       * Only the unregistered side is exercised, because the two are not
+       * comparable here and not because of anything this feature does: a
+       * registered page data route validates `request_path` and
+       * `original_url` before its handler runs, so a request with no body is
+       * rejected there and never reaches `trigger404()` at all.
+       */
+      const seenWithoutLoaderBody = async (isHandlerRegistered: boolean) => {
+        const seen: Record<string, unknown> = {};
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          notFoundHandler: (request, isPageData, params) => {
+            seen.url = request.url;
+            seen.pageData = params.pageData;
+            seen.isPageData = isPageData;
+
+            return params.APIResponseHelpers.createPageErrorResponse({
+              request,
+              statusCode: 404,
+              errorCode: 'not_found',
+              errorMessage: 'Not found',
+              pageMetadata: { title: 'Not found', description: 'Not found' },
+            });
+          },
+        });
+
+        if (isHandlerRegistered) {
+          server.pageDataHandler.register('thing', (request) =>
+            request.trigger404(),
+          );
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          await fastifyOf(server).inject({
+            method: 'POST',
+            url: '/api/v1/page_data/thing',
+            payload: {},
+          });
+
+          return seen;
+        } finally {
+          await server.stop();
+        }
+      };
+
+      it('reports no page context', async () => {
+        const genuine = await seenWithoutLoaderBody(false);
+
+        expect(genuine.pageData).toBeUndefined();
+        expect(genuine.isPageData).toBe(true);
+        // Left alone, because there is no frontend URL to put here.
+        expect(genuine.url).toBe('/api/v1/page_data/thing');
+      });
+    });
+
+    describe('reply state set by hooks before the handler', () => {
+      /**
+       * The limit of the rollback, pinned in both directions.
+       *
+       * The snapshot is taken when the handler is invoked, so it covers what
+       * the handler sets and not what a `preHandler` hook set before it. Those
+       * hooks run on both paths, but only the matched path gives them a route
+       * to branch on, so a hook keyed on `request.routeOptions.url` sets a
+       * header on a trigger that a genuine miss never gets.
+       *
+       * Taking the snapshot earlier does not fix it and makes it worse. A hook
+       * that sets a header unconditionally sets it on both paths, so rolling
+       * back past the hooks would strip it from the trigger while the miss
+       * keeps it, which is the same leak pointing the other way. The only
+       * baseline that would be right is what those hooks would have set with
+       * no route matched, and that cannot be obtained without running them
+       * again.
+       */
+      const withHooks = async (isRouteRegistered: boolean) => {
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          plugins: [
+            (host) => {
+              host.addHook('preHandler', async (request, reply) => {
+                reply.header('x-always', 'set');
+
+                if (request.routeOptions?.url) {
+                  reply.header('x-route-dependent', request.routeOptions.url);
+                }
+              });
+            },
+          ],
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('thing', (request) => request.trigger404());
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          return await fastifyOf(server).inject(apiRouteInjection);
+        } finally {
+          await server.stop();
+        }
+      };
+
+      it('keeps a header the hook sets on both paths', async () => {
+        const triggered = await withHooks(true);
+        const genuine = await withHooks(false);
+
+        expect(triggered.headers['x-always']).toBe('set');
+        expect(genuine.headers['x-always']).toBe('set');
+      });
+
+      it('still leaks a header the hook keys on the matched route', async () => {
+        // Documented limitation rather than intended behavior. If this ever
+        // starts passing as equal, the paragraph in docs/ssr.md should go.
+        const triggered = await withHooks(true);
+        const genuine = await withHooks(false);
+
+        expect(triggered.headers['x-route-dependent']).toBe('/api/v1/thing');
+        expect(genuine.headers['x-route-dependent']).toBeUndefined();
+      });
+    });
 
     describe('handler throws after triggering', () => {
       /**

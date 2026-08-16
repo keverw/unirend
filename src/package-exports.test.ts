@@ -22,6 +22,7 @@ import type {
   APIRouteHandler,
   AppBundles,
   PageDataHandler,
+  NotFoundRequest,
   Trigger404Signal,
 } from './server';
 import { defineAppBundles } from './server';
@@ -50,6 +51,7 @@ const publicSecurityHeadersTypeSurface: PublicSecurityHeadersTypeSurface | null 
 // types that now accept it.
 type PublicTrigger404TypeSurface = {
   signal: Trigger404Signal;
+  notFoundRequest: NotFoundRequest;
   apiHandler: APIRouteHandler;
   pageDataHandler: PageDataHandler;
 };

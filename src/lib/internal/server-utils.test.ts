@@ -2,6 +2,12 @@ import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { isValid as isValidULID } from 'ulid';
 import fastify from 'fastify';
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
+import type {
+  NotFoundRequest,
+  HTTPSOptions,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
+} from '../types';
 import {
   createControlledReply,
   classifyRequest,
@@ -22,16 +28,12 @@ import {
   attachHandlerResponseToError,
   describeHandlerResult,
   resolveAPINotFoundResponse,
+  derivePageDataNotFoundContext,
   sendClosingPayload,
   isSplitHandler,
   prepareWebResponse,
   computeDomainInfo,
 } from './server-utils';
-import type {
-  HTTPSOptions,
-  PluginAPIRouteShortcuts,
-  PluginPageDataHandlerShortcuts,
-} from '../types';
 import { APIResponseHelpers } from '../../api-envelope';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 
@@ -2142,6 +2144,104 @@ describe('attachHandlerResponseToError', () => {
   });
 });
 
+describe('derivePageDataNotFoundContext', () => {
+  const requestFor = (url: string, body: unknown): FastifyRequest =>
+    ({ url, body }) as unknown as FastifyRequest;
+
+  const loaderBody = {
+    route_params: { id: '7' },
+    query_params: { q: 'x' },
+    request_path: '/account/7',
+    original_url: '/account/7?q=x',
+  };
+
+  it('reads the page type after the prefix and version', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('account');
+    expect(context?.originalURL).toBe('/account/7?q=x');
+    expect(context?.routeParams).toEqual({ id: '7' });
+  });
+
+  it('keeps a namespaced page type whole', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/marketing/home', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('marketing/home');
+  });
+
+  it('is not fooled by a prefix containing the endpoint word', () => {
+    // Searching for the first `/page_data/` would report
+    // `service/v1/page_data/home` here, and the short-circuit would then
+    // disagree with the HTTP path about which page type was missing.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/page_data/service/v1/page_data/home', loaderBody),
+      'page_data',
+      '/page_data/service',
+    );
+
+    expect(context?.pageType).toBe('home');
+  });
+
+  it('returns nothing without the loader body', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {}),
+      'page_data',
+      '/api',
+    );
+
+    expect(context).toBeUndefined();
+  });
+
+  it('handles a root API prefix', () => {
+    // `normalizeAPIPrefix` keeps `/` as-is, so slicing it would take the URL's
+    // only leading slash and nothing below would match.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/v1/page_data/account', loaderBody),
+      'page_data',
+      '/',
+    );
+
+    expect(context?.pageType).toBe('account');
+  });
+
+  it('ignores route and query params that are not plain objects', () => {
+    // An unregistered page type never reaches the registered route's body
+    // validation, so a caller can send anything here. A cast would hand a
+    // handler a value the public type says is impossible.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {
+        ...loaderBody,
+        route_params: 'not-an-object',
+        query_params: ['also', 'not'],
+      }),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.routeParams).toEqual({});
+    expect(context?.queryParams).toEqual({});
+    expect(context?.originalURL).toBe('/account/7?q=x');
+  });
+
+  it('returns nothing when the URL is not under the prefix', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/elsewhere/page_data/account', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context).toBeUndefined();
+  });
+});
+
 describe('resolveAPINotFoundResponse', () => {
   const createReply = () => {
     const state = {
@@ -2201,7 +2301,7 @@ describe('resolveAPINotFoundResponse', () => {
     const request = createRequest('/api/v1/page_data/dashboard');
     const handler = mock(
       (
-        handlerRequest: FastifyRequest,
+        handlerRequest: NotFoundRequest,
         _isPageData: boolean | undefined,
         _params: unknown,
       ) =>
@@ -2242,7 +2342,7 @@ describe('resolveAPINotFoundResponse', () => {
 
     const payload = await resolveAPINotFoundResponse({
       ...baseConfig,
-      handler: (handlerRequest: FastifyRequest) =>
+      handler: (handlerRequest: NotFoundRequest) =>
         APIResponseHelpers.createAPIErrorResponse({
           request: handlerRequest,
           statusCode: 451,
@@ -2265,7 +2365,7 @@ describe('resolveAPINotFoundResponse', () => {
     const payload = await resolveAPINotFoundResponse({
       ...baseConfig,
       handler: {
-        api: (handlerRequest: FastifyRequest) =>
+        api: (handlerRequest: NotFoundRequest) =>
           APIResponseHelpers.createAPIErrorResponse({
             request: handlerRequest,
             statusCode: 404,
@@ -2339,7 +2439,7 @@ describe('resolveAPINotFoundResponse', () => {
     const request = createRequest('/dashboard');
     const handler = mock(
       (
-        handlerRequest: FastifyRequest,
+        handlerRequest: NotFoundRequest,
         _isPageData: boolean | undefined,
         _params: unknown,
       ) =>

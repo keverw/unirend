@@ -12,7 +12,7 @@ import type {
   APIResponseEnvelope,
   PageResponseEnvelope,
 } from './api-envelope-types';
-import type { ControlledReply } from '../types';
+import type { ControlledReply, NotFoundRequest } from '../types';
 import { sendRawErrorEnvelopeResponse } from '../internal/error-envelope-send';
 
 /**
@@ -40,7 +40,7 @@ export class APIResponseHelpers {
     T,
     M extends BaseMeta = BaseMeta,
   >(params: {
-    request: FastifyRequest;
+    request: FastifyRequest | NotFoundRequest;
     data: T;
     statusCode?: number;
     meta?: Partial<M>;
@@ -76,7 +76,7 @@ export class APIResponseHelpers {
    * @returns An APIErrorResponse envelope with merged meta and a request_id.
    */
   public static createAPIErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
+    request: FastifyRequest | NotFoundRequest;
     statusCode: number;
     errorCode: string;
     errorMessage: string;
@@ -126,7 +126,7 @@ export class APIResponseHelpers {
     T,
     M extends BaseMeta = BaseMeta,
   >(params: {
-    request: FastifyRequest;
+    request: FastifyRequest | NotFoundRequest;
     data: T;
     pageMetadata: PageMetadata;
     statusCode?: number;
@@ -176,7 +176,7 @@ export class APIResponseHelpers {
   public static createPageRedirectResponse<
     M extends BaseMeta = BaseMeta,
   >(params: {
-    request: FastifyRequest;
+    request: FastifyRequest | NotFoundRequest;
     redirectInfo: RedirectInfo;
     pageMetadata: PageMetadata;
     meta?: Partial<M>;
@@ -226,7 +226,7 @@ export class APIResponseHelpers {
    */
 
   public static createPageErrorResponse<M extends BaseMeta = BaseMeta>(params: {
-    request: FastifyRequest;
+    request: FastifyRequest | NotFoundRequest;
     statusCode: number;
     errorCode: string;
     errorMessage: string;

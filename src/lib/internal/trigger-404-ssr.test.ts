@@ -20,7 +20,8 @@ import { join } from 'node:path';
 import getPort from 'get-port';
 import { createTempDir } from 'lifecycleion/tmp-dir';
 import type { TmpDir } from 'lifecycleion/tmp-dir';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
+import type { NotFoundRequest, APINotFoundHandlerParams } from '../types';
 import { serveSSRBuilt } from '../ssr';
 import type { SSRServer } from './ssr-server';
 import { APIResponseHelpers } from '../../api-envelope';
@@ -136,9 +137,9 @@ const pageDataInjection: Injection = {
 const createNotFoundSpy = () =>
   mock(
     (
-      request: FastifyRequest,
+      request: NotFoundRequest,
       isPageData: boolean | undefined,
-      params: { APIResponseHelpers: typeof APIResponseHelpers },
+      params: APINotFoundHandlerParams<typeof APIResponseHelpers>,
     ) =>
       isPageData
         ? params.APIResponseHelpers.createPageErrorResponse({
@@ -236,6 +237,17 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
     expect(spy.mock.calls[0][1]).toBe(expected.isPageData);
     expect(spy.mock.calls[0][2]).toEqual({
       APIResponseHelpers: expected.HelpersClass,
+      // Same as the APIServer suite: the frontend's description of the page
+      // data request, identical on the triggered and unregistered servers.
+      pageData: expected.isPageData
+        ? {
+            pageType: 'thing',
+            routeParams: {},
+            queryParams: {},
+            requestPath: '/thing',
+            originalURL: '/thing',
+          }
+        : undefined,
     });
   };
 
@@ -343,7 +355,7 @@ describe('trigger404 byte-equality matrix on SSRServer', () => {
       // isPageData true is what proves the page branch was reached through the
       // shared path rather than the API one.
       expectHandlerSpyArgs(spies[0], {
-        url: '/api/v1/page_data/thing',
+        url: '/thing',
         isPageData: true,
         HelpersClass: APIResponseHelpers,
       });

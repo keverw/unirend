@@ -1637,12 +1637,90 @@ export type WebErrorHandlerFn = (
 /**
  * Not found handler function type for API/page requests
  */
+/**
+ * The request a not-found handler receives.
+ *
+ * A `FastifyRequest` with its routing state removed. `params`, `routeOptions`,
+ * and `is404` are not on this type at all, so reading one is a compile error
+ * rather than a value that varies. They are `undefined` at runtime, which is
+ * what a JavaScript consumer sees.
+ *
+ * They are removed because they are the one thing that could tell a
+ * `request.trigger404()` apart from a genuine miss. A trigger runs on a
+ * request that matched a route and carries that route's params and URL, while
+ * a real miss carries Fastify's wildcard params, no route URL, and
+ * `is404 === true`. A handler that read any of them would answer differently
+ * for the two, which would make a gated route distinguishable from an
+ * unregistered one. Stripping them for every caller means both paths present
+ * the same shape, so there is nothing left to compare.
+ *
+ * Everything else is the real request, including headers, cookies, body, the
+ * logger, and every unirend decoration such as `activeSSRApp`. That is the
+ * point of it: the request is who is asking, and `params.pageData` is what was
+ * asked for.
+ *
+ * Build a response from `request.url`, the `isPageData` argument, and
+ * `params.pageData`, which are the same however the handler was reached. Not
+ * from transport details. During an SSR short-circuit the underlying request
+ * is the browser's page request rather than a page data POST, so `body` and
+ * `content-type` describe a page load there and a handler reading them will
+ * answer differently than it does over HTTP.
+ */
+export type NotFoundRequest = Omit<
+  FastifyRequest,
+  'params' | 'routeOptions' | 'is404'
+>;
+
+/**
+ * The page data request a not-found handler is answering, as the frontend
+ * described it.
+ *
+ * Present for a page data request that came from a unirend loader, and
+ * identical whether the handler was reached by a genuine miss over HTTP or by
+ * `request.trigger404()` during an SSR render.
+ *
+ * Undefined for a plain API route, and also for a request to the page data
+ * endpoint that did not come from a loader, such as a direct call with no body
+ * or a body missing `original_url`. Fall back to `request.url` there rather
+ * than assuming this is set. The HTTP path reads it from the loader's POST body, the
+ * short-circuit path from the loader context it already holds.
+ *
+ * The split to keep in mind: the request is who is asking, this is what was
+ * asked for. The request stays the real one the visitor made, which is what
+ * cookies, auth, and client IP need, and on the SSR short-circuit that is the
+ * browser's page request rather than a page data POST. Build the response from
+ * this and from `request.url`, which agree on both paths, rather than from
+ * transport details such as `request.body`, which do not.
+ */
+export interface PageDataNotFoundContext {
+  /** The page type that had no handler, namespace included */
+  pageType: string;
+  /** Route params from React Router */
+  routeParams: Record<string, string>;
+  /** Query params from React Router */
+  queryParams: Record<string, unknown>;
+  /** The frontend path, without the query string */
+  requestPath: string;
+  /** The full frontend URL, query string included */
+  originalURL: string;
+}
+
+export interface APINotFoundHandlerParams<
+  H extends APIResponseHelpersClass = APIResponseHelpersClass,
+> extends APIErrorHandlerParams<H> {
+  /**
+   * The page data request being answered, when there is one. Undefined for a
+   * plain API route.
+   */
+  pageData?: PageDataNotFoundContext;
+}
+
 export type APINotFoundHandlerFn<
   H extends APIResponseHelpersClass = APIResponseHelpersClass,
 > = (
-  request: FastifyRequest,
+  request: NotFoundRequest,
   isPageData: boolean | undefined,
-  params: APIErrorHandlerParams<H>,
+  params: APINotFoundHandlerParams<H>,
 ) =>
   | APIErrorResponse
   | PageErrorResponse

@@ -23,6 +23,8 @@ import type {
   SplitClosingHandler,
   APINotFoundHandlerFn,
   SplitNotFoundHandler,
+  NotFoundRequest,
+  PageDataNotFoundContext,
 } from '../types';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { DEFAULT_API_PREFIX, DEFAULT_PAGE_DATA_ENDPOINT } from './consts';
@@ -415,10 +417,149 @@ export interface APINotFoundResolutionConfig {
  * triggers and a server that never registered the route, and compare the raw
  * bodies.
  */
+/**
+ * The page data context a not-found handler receives, read off the loader's
+ * POST body.
+ *
+ * Used on the HTTP path, where the loader's request body is parsed before the
+ * not-found handler runs even though no route matched. The SSR short-circuit
+ * passes its own equivalent instead, since it never builds an HTTP request.
+ *
+ * Returns undefined when this is not a page data request or the body is not
+ * the shape the loader sends, which is what a direct curl to the endpoint
+ * looks like. Both paths then agree on undefined.
+ */
+/** A plain object, or an empty one for anything else a caller may have sent. */
+function asPlainObject<V>(value: unknown): Record<string, V> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, V>;
+}
+
+export function derivePageDataNotFoundContext(
+  request: FastifyRequest,
+  pageDataEndpoint: string,
+  apiPrefix: string | false,
+): PageDataNotFoundContext | undefined {
+  const body = request.body;
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return undefined;
+  }
+
+  const fields = body as Record<string, unknown>;
+  const originalURL = fields.original_url;
+  const requestPath = fields.request_path;
+
+  if (typeof originalURL !== 'string' || typeof requestPath !== 'string') {
+    return undefined;
+  }
+
+  // Walk the URL from the front rather than searching for the endpoint
+  // segment. A first match would misread a prefix that contains the same word,
+  // so `/page_data/service/v1/page_data/home` would report
+  // `service/v1/page_data/home` as the page type instead of `home`, and the
+  // short-circuit would then disagree with the HTTP path about what was
+  // missing. Everything after the endpoint is kept, so a namespaced page type
+  // such as `marketing/home` survives where taking the last segment would not.
+  let rest = request.url.split('?')[0] ?? '';
+
+  // Root is left alone. `normalizeAPIPrefix` keeps `/` as-is, and slicing it
+  // would take the URL's only leading slash with it, so `/v1/page_data/home`
+  // would become `v1/page_data/home` and match nothing below.
+  if (apiPrefix && apiPrefix !== '/') {
+    if (!rest.startsWith(apiPrefix)) {
+      return undefined;
+    }
+
+    rest = rest.slice(apiPrefix.length);
+  }
+
+  // Optional version segment, as in `/v1`.
+  rest = rest.replace(/^\/v\d+/, '');
+
+  const marker = `/${pageDataEndpoint}/`;
+
+  if (!rest.startsWith(marker)) {
+    return undefined;
+  }
+
+  return {
+    pageType: rest.slice(marker.length),
+    // Checked rather than cast. A registered route validates these before its
+    // handler runs, but an unregistered page type never reaches that, so a
+    // caller can send `route_params` as a string or an array and a cast would
+    // hand a custom handler a value the public type says is impossible.
+    routeParams: asPlainObject<string>(fields.route_params),
+    queryParams: asPlainObject<unknown>(fields.query_params),
+    requestPath,
+    originalURL,
+  };
+}
+
+/**
+ * The view of a request that a not-found handler is given.
+ *
+ * `params`, `routeOptions`, and `is404` are removed, because they are the one
+ * thing that could tell a `request.trigger404()` apart from a genuine miss. A
+ * trigger runs on a request that matched a route and carries that route's
+ * params and URL, while a real miss carries Fastify's wildcard params, no
+ * route URL, and `is404 === true`. A handler reading any of them would answer
+ * differently for the two, making a gated route distinguishable from an
+ * unregistered one.
+ *
+ * Removing them for every caller is what makes the two paths agree. Faking a
+ * miss on the trigger path instead was tried and does not work: the real
+ * `routeOptions` is a twelve-key object holding Fastify's own 404 handler,
+ * schema, and config, and a stub of it makes `routeOptions.config` throw where
+ * a real miss would not.
+ *
+ * Prototype-based, so every other property, decoration, and getter reads
+ * through to the real request unchanged and nothing is copied. The request
+ * itself cannot be modified in any case, since `is404` and `routeOptions` are
+ * readonly on it.
+ *
+ * Used by both sites that invoke a custom not-found handler: this file's
+ * resolver, and the plain-web branch in `api-server.ts`.
+ */
+export function createNotFoundRequestView(
+  request: FastifyRequest,
+  pageData?: PageDataNotFoundContext,
+): NotFoundRequest {
+  return Object.create(request, {
+    params: { value: undefined, enumerable: true },
+    routeOptions: { value: undefined, enumerable: true },
+    is404: { value: undefined, enumerable: true },
+    // For a page data request, `url` and `method` describe the page the
+    // visitor asked for rather than the transport that carried the lookup.
+    //
+    // Those two are the last thing that differed between the two ways this is
+    // reached. A genuine miss arrives as `POST /api/v1/page_data/account`,
+    // while the SSR short-circuit runs on the page request itself, `GET
+    // /account`. Presenting the frontend view makes them agree, and it is the
+    // more useful of the two, since a not-found page wants to name the page.
+    // Neither value is invented: both paths carry it, the HTTP one in the
+    // loader's body and the short-circuit in the loader context.
+    //
+    // `GET` because that is the request the frontend is describing. A client
+    // side navigation has no page request of its own, and naming the page it
+    // navigated to is still the right description.
+    ...(pageData
+      ? {
+          url: { value: pageData.originalURL, enumerable: true },
+          method: { value: 'GET', enumerable: true },
+        }
+      : {}),
+  }) as NotFoundRequest;
+}
+
 export async function resolveAPINotFoundResponse({
   request,
   reply,
   classification,
+  pageDataContext,
   handler,
   serverLabel,
   HelpersClass,
@@ -437,6 +578,12 @@ export async function resolveAPINotFoundResponse({
    * same page type produces a page one.
    */
   classification?: { isAPI: boolean; isPageData: boolean };
+  /**
+   * The frontend's description of this page data request. Passed by the SSR
+   * short-circuit, which has it directly and builds no HTTP request to read it
+   * from. Derived from the loader's POST body otherwise.
+   */
+  pageDataContext?: PageDataNotFoundContext;
 }): Promise<unknown> {
   const { isAPI, isPageData } =
     classification ?? classifyRequest(request.url, apiPrefix, pageDataEndpoint);
@@ -445,14 +592,22 @@ export async function resolveAPINotFoundResponse({
     try {
       let customResponse: { status_code?: number } | undefined;
 
+      const pageData = isPageData
+        ? (pageDataContext ??
+          derivePageDataNotFoundContext(request, pageDataEndpoint, apiPrefix))
+        : undefined;
+
+      const handlerRequest = createNotFoundRequestView(request, pageData);
+
       if (isSplitHandler<Partial<SplitNotFoundHandler>>(handler)) {
         // Split form lets mixed API + web servers customize each handler
         // independently. A split carrying only `.web` has nothing for us here
         // and falls through to the default envelope.
         if (isAPI && handler.api) {
           customResponse = await Promise.resolve(
-            handler.api(request, isPageData, {
+            handler.api(handlerRequest, isPageData, {
               APIResponseHelpers: HelpersClass,
+              pageData,
             }),
           );
         }
@@ -460,8 +615,9 @@ export async function resolveAPINotFoundResponse({
         // Function form. Callers only reach this resolver under isAPI, so the
         // function is always the API/page envelope form.
         customResponse = await Promise.resolve(
-          handler(request, isPageData, {
+          handler(handlerRequest, isPageData, {
             APIResponseHelpers: HelpersClass,
+            pageData,
           }),
         );
       }

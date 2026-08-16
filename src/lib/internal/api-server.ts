@@ -11,6 +11,7 @@ import {
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
   resolveAPINotFoundResponse,
+  createNotFoundRequestView,
   registerClosingResponseHook,
   isSplitHandler,
   prepareWebResponse,
@@ -897,8 +898,10 @@ export class APIServer<
             // Function form (SSR compatible API/Page envelope)
             const apiHandler = this.options
               .notFoundHandler as APINotFoundHandlerFn;
+            // Same view the resolver hands a not-found handler, so this
+            // branch cannot be the one place routing state leaks through.
             const custom = await Promise.resolve(
-              apiHandler(request, isPageData, {
+              apiHandler(createNotFoundRequestView(request), isPageData, {
                 APIResponseHelpers: this.APIResponseHelpersClass,
               }),
             );

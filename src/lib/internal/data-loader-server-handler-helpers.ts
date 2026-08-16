@@ -619,6 +619,17 @@ export class DataLoaderServerHandlerHelpers<
       handlerResult: result,
       route: `page data handler "${normalizedPageType}"`,
       classification: { isAPI: true, isPageData: true },
+      // This path has no loader body to read, so it hands over the same
+      // frontend description the loader gave it. Without this a custom
+      // not-found handler would see the page URL here and the page data URL
+      // on the HTTP fallback.
+      pageDataContext: {
+        pageType: normalizedPageType,
+        routeParams,
+        queryParams,
+        requestPath,
+        originalURL,
+      },
       pageType: normalizedPageType,
       version: latestVersion,
     });

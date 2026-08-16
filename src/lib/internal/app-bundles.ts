@@ -3,9 +3,10 @@
  *
  * A single `SSRServer` can host several app bundles, selected per request with
  * `request.setActiveSSRApp(...)` and read back as `request.activeSSRApp`. That
- * value is a plain `string`, so the gate this exists for silently fails open on
- * a typo — the comparison is simply never true, and the handler serves every
- * bundle:
+ * value is a plain `string`, so the gate this exists for silently stops working
+ * on a typo. The comparison is simply never true. In the form below that means
+ * every bundle 404s, including the one the handler was written for, and
+ * spelling it `=== 'app-shelf'` instead means the handler answers everywhere:
  *
  * ```ts
  * // Typo. Compiles, runs, gates nothing.
@@ -167,6 +168,32 @@ type BundleKeyOrDefault<TKey extends string> =
  * mistake, and answering it silently would turn every gated route into a 404
  * with nothing to explain it.
  */
+/**
+ * Refuses a key that was never declared.
+ *
+ * The types stop being a check once the list came from configuration, since
+ * `defineAppBundles(...names)` over a `string[]` widens `TKey` to `string` and
+ * every literal then type-checks. Without this, a typo in `is()` would just
+ * return false, and in the documented `if (!bundles.is(...)) trigger404()`
+ * gate that 404s every request to the route with nothing to explain it.
+ * `key()` and `match()` already refuse an undeclared key, so this makes the
+ * three agree.
+ */
+function assertDeclaredKey(
+  key: string,
+  declared: ReadonlySet<string>,
+  declaredKeys: readonly string[],
+  method: string,
+): void {
+  if (key === DEFAULT_APP_BUNDLE_KEY || declared.has(key)) {
+    return;
+  }
+
+  throw new Error(
+    `App bundle key "${key}" was passed to ${method}() but was not declared in defineAppBundles(). Declared keys: ${declaredKeys.join(', ')}.`,
+  );
+}
+
 function readActiveBundle(request: FastifyRequest): string {
   const activeKey: unknown = request.activeSSRApp;
 
@@ -270,10 +297,15 @@ export function defineAppBundles<TKey extends string>(
       key: TMatch | readonly TMatch[],
     ): request is FastifyRequest & { activeSSRApp: TMatch } {
       const activeKey = readActiveBundle(request);
+      const wanted: readonly string[] = Array.isArray(key)
+        ? (key as readonly string[])
+        : [key as string];
 
-      return Array.isArray(key)
-        ? (key as readonly string[]).includes(activeKey)
-        : activeKey === key;
+      for (const candidate of wanted) {
+        assertDeclaredKey(candidate, declared, declaredKeys, 'is');
+      }
+
+      return wanted.includes(activeKey);
     },
 
     match<const TValue>(
@@ -289,11 +321,7 @@ export function defineAppBundles<TKey extends string>(
       // object properties, and a declaration built from configuration has
       // widened TKey to `string`, which stops the types checking them at all.
       for (const caseKey of Object.keys(cases)) {
-        if (caseKey !== DEFAULT_APP_BUNDLE_KEY && !declared.has(caseKey)) {
-          throw new Error(
-            `App bundle key "${caseKey}" was used as a case in match() but was not declared in defineAppBundles(). Declared keys: ${declaredKeys.join(', ')}.`,
-          );
-        }
+        assertDeclaredKey(caseKey, declared, declaredKeys, 'match');
       }
 
       // Presence rather than the value, so a case written as `undefined` is

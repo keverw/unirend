@@ -27,6 +27,7 @@
 
 // Server-safe types
 export type {
+  NotFoundRequest,
   RenderRequest,
   RenderResult,
   ServeSSRWithHMROptions,

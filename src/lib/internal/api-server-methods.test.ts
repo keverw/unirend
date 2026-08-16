@@ -10,6 +10,7 @@ import type { APIServer } from './api-server';
 import { APIResponseHelpers } from '../../api-envelope';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type {
+  NotFoundRequest,
   APIErrorHandlerParams,
   APIServerAPIOptions,
   APIServerWebOptions,
@@ -344,7 +345,7 @@ describe('APIServer public methods', () => {
     it('passes APIResponseHelpersClass to standalone API not-found handlers', async () => {
       const notFoundHandler = mock(
         (
-          request: FastifyRequest,
+          request: NotFoundRequest,
           _isPageData: boolean | undefined,
           params: { APIResponseHelpers: typeof APIResponseHelpers },
         ) =>
