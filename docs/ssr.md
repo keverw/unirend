@@ -1624,6 +1624,8 @@ Rules for using it:
 
   A request with no loader body does not reach a registered route's handler at all: the route validates `request_path` and `original_url` first and rejects it, so that request answers a validation error where an unregistered page type answers 404. Nothing about `trigger404()` applies there, since the handler never runs.
 
+  `pageData` is specific to the not-found handler. `APIHandling.errorHandler` does not receive it, and its `request` is the ordinary Fastify one rather than a `NotFoundRequest`. Nothing is withheld there: the stripping exists so a triggered 404 cannot be told apart from a genuine miss, and a 500 has no such pair to be confused with. If an error handler wants the page a failing page data request was for, read `original_url` off `request.body`, which is the loader's POST body and the same field `pageData` is derived from. That applies to the HTTP path only. A page data handler that throws during an SSR render never reaches `APIHandling.errorHandler`, since the throw propagates out through the render into `get500ErrorPage`, which is the app's own 500 page and the right answer for a visitor mid-load.
+
 - **Not available in SSG.** Local page data loaders never receive a Fastify request, so there is no `trigger404` to call. Return `createPageErrorResponse` with a 404 status instead.
 
 The return type is an opaque `Trigger404Signal`, exported from `unirend/server` for code that needs to name it. Handlers are unaffected by its presence, but code that consumes a handler's return type sees the extra union member.
