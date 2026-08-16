@@ -2,6 +2,7 @@ import fastify from 'fastify';
 import qs from 'qs';
 import formbody from '@fastify/formbody';
 import type { FastifyServerOptions, FastifyError } from 'fastify';
+import { markTrigger404Requested } from './trigger-404';
 import {
   createControlledInstance,
   classifyRequest,
@@ -9,6 +10,8 @@ import {
   normalizePageDataEndpoint,
   createDefaultAPIErrorResponse,
   createDefaultAPINotFoundResponse,
+  resolveAPINotFoundResponse,
+  createNotFoundRequestView,
   registerClosingResponseHook,
   isSplitHandler,
   prepareWebResponse,
@@ -19,7 +22,11 @@ import {
   registerRequestIDDecoration,
   computeDomainInfo,
 } from './server-utils';
-import type { ClosingHandlerOption } from './server-utils';
+import type {
+  ClosingHandlerOption,
+  APINotFoundHandlerOption,
+  APINotFoundResolutionConfig,
+} from './server-utils';
 import { registerClientInfoResolution } from './client-info-resolution';
 import type {
   APIServerOptions,
@@ -302,6 +309,15 @@ export class APIServer<
       this.fastifyInstance.decorateRequest('serverLabel', this.serverLabel);
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
 
+      // Abandon a request into the not-found path. Fastify puts function
+      // decorators on the Request prototype, so this costs nothing per request
+      // and carries no per-request state: the trigger state lives in the async
+      // context of the handler invocation that called it.
+      this.fastifyInstance.decorateRequest(
+        'trigger404',
+        markTrigger404Requested,
+      );
+
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
@@ -436,6 +452,13 @@ export class APIServer<
           this.pageDataHandlers,
         );
       } else {
+        // Install the not-found resolution on both registries before their
+        // routes exist, so request.trigger404() resolves through exactly the
+        // config a genuine miss resolves through.
+        const notFoundResolution = this.notFoundResolutionConfig();
+        this.pageDataHandlers.setNotFoundResolution(notFoundResolution);
+        this.apiRoutes.setNotFoundResolution(notFoundResolution);
+
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,
@@ -796,6 +819,23 @@ export class APIServer<
   }
 
   /**
+   * Assembles the shared API/page-data not-found resolution config in one
+   * place, so every caller resolves 404s identically.
+   * @private
+   */
+  private notFoundResolutionConfig(): APINotFoundResolutionConfig {
+    return {
+      // The resolver invokes the handler with the class configured on this
+      // server, so widening the params type back to the base is safe.
+      handler: this.options.notFoundHandler as APINotFoundHandlerOption,
+      serverLabel: this.serverLabel,
+      HelpersClass: this.APIResponseHelpersClass,
+      apiPrefix: this.normalizedAPIPrefix,
+      pageDataEndpoint: this.normalizedPageDataEndpoint,
+    };
+  }
+
+  /**
    * Setup a default 404 handler that returns standardized envelopes
    * @private
    */
@@ -811,6 +851,18 @@ export class APIServer<
         this.normalizedPageDataEndpoint,
       );
 
+      // API and page-data requests share their not-found resolution with
+      // SSRServer so the two can never drift.
+      if (isAPI && this.normalizedAPIPrefix !== false) {
+        return resolveAPINotFoundResponse({
+          ...this.notFoundResolutionConfig(),
+          request,
+          reply,
+        });
+      }
+
+      // Everything below is the plain-web side, which is APIServer-only.
+
       // If user provided custom not-found handler, use it
       if (this.options.notFoundHandler) {
         try {
@@ -822,20 +874,7 @@ export class APIServer<
           ) {
             const splitHandler = this.options.notFoundHandler;
 
-            if (isAPI && splitHandler.api) {
-              // Use API handler
-              const apiResponse = await Promise.resolve(
-                splitHandler.api(request, isPageData, {
-                  APIResponseHelpers: this.APIResponseHelpersClass,
-                }),
-              );
-
-              // Extract status code from envelope response
-              const statusCode = apiResponse.status_code || 404;
-              reply.code(statusCode).header('Cache-Control', 'no-store');
-
-              return apiResponse;
-            } else if (!isAPI && splitHandler.web) {
+            if (splitHandler.web) {
               // Use web handler
               const webResponse = await Promise.resolve(
                 splitHandler.web(request),
@@ -859,8 +898,10 @@ export class APIServer<
             // Function form (SSR compatible API/Page envelope)
             const apiHandler = this.options
               .notFoundHandler as APINotFoundHandlerFn;
+            // Same view the resolver hands a not-found handler, so this
+            // branch cannot be the one place routing state leaks through.
             const custom = await Promise.resolve(
-              apiHandler(request, isPageData, {
+              apiHandler(createNotFoundRequestView(request), isPageData, {
                 APIResponseHelpers: this.APIResponseHelpersClass,
               }),
             );

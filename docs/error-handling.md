@@ -3,6 +3,7 @@
 <!-- toc -->
 
 - [Overview](#overview)
+  - [Requests No Route Claimed](#requests-no-route-claimed)
   - [Static Asset 404s](#static-asset-404s)
 - [Recommended Setup](#recommended-setup)
   - [Error Utilities and Recommended Setup](#error-utilities-and-recommended-setup)
@@ -38,6 +39,20 @@ Behavior also depends on both the error path and when it occurs:
 1. Thrown route, loader, or render errors
 2. Returned or framework-converted page error envelopes
 3. The final environment where the error is surfaced, such as SSR, SSG, or after hydration on the client
+
+### Requests No Route Claimed
+
+On an SSR server, every request no route matched is classified the same way, whatever its method. An API or page-data path returns the server's configured 404 envelope, including a custom `APIHandling.notFoundHandler` and a custom `APIResponseHelpersClass`. Any other path renders through the normal React SSR path, so a `GET` to an unknown URL gets the app's own 404 page as it always did.
+
+A non-GET request no route claimed is rendered **as a `GET`** and answered **404**. Two reasons it is not passed through with its original method. React Router's static handler runs the matched route's `action` for a non-GET request, which is how `<Form method="post">` is meant to work, so forwarding the method would let a request the server never routed run the app's mutation code. And for the far more common route with no action it answers `405`, deciding that from a route object having matched, so an app with the recommended `path: '*'` catch-all would answer `405` even for a URL that genuinely does not exist. Rendering as a `GET` makes an action unreachable, and the 404 is the answer regardless of what the render produced, so `POST /about` returns 404 even though `GET /about` is a real page. That holds however the render answered, with one exception: a custom server entry's own `Response`, and a redirect, both become the 404, and a redirect's `Location` is dropped so nothing is left to follow. A `GET` to the same URL still redirects normally.
+
+The exception is a `5xx`, which passes through. The override exists to stop a success or a redirect being invented for a request no route claimed, and a server error is neither. Masking one as 404 would hide a real failure and skip `get500ErrorPage`. It also keeps the failure shapes in agreement: a render that throws answers 500, so a render that reports the same failure by returning a 500 answers 500 too.
+
+Redirects look like the one thing worth passing through, and they are the one thing that must not be. The render runs as a `GET`, but the _client_ sent a `POST` or a `DELETE`, and that is what its redirect handling keys on. A `307` or `308` tells it to repeat the original method and body at the `Location`, so a loader that redirects unknown URLs would turn a `POST` no route claimed into a `POST`, body included, against wherever that `Location` points. `301` and `302` preserve the method for everything except `POST`, so a `DELETE` would follow as a `DELETE`.
+
+This is a design position, not a limitation to work around. Page data loaders exist to populate page content, and mutations belong on [API routes](./ssr.md#custom-api-routes) or [page data handlers](./ssr.md#page-data-loader-handlers-and-versioning), which is where the envelope contract, versioning, and error handling live. React Router route `action`s are not part of that model and are not dispatched, so point a form at an API endpoint rather than at a route action.
+
+Three things reach that same classification: an unmatched request, `reply.callNotFound()` from a raw plugin route, and [`request.trigger404()`](./ssr.md#abandoning-a-request-into-the-not-found-path) from a page data or API route handler. `APIServer` classifies its own misses the same way.
 
 ### Static Asset 404s
 

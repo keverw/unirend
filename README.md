@@ -163,7 +163,7 @@ mountApp('root', routes, {
 
 **Managing `<title>`, `<meta>`, and `<link>` tags:** Use `UnirendHead` from `unirend/client`, Unirend's built-in document head manager. It works identically in SSR, SSG, and SPA mode and injects into the `<!--ss-head-->` slot on the server.
 
-`UnirendHead` owns the per-page SEO tags (`<title>`, `description`, and the OpenGraph and Twitter card tags), so you set those per page rather than in `index.html`. Every other head tag in your template, `<meta name="viewport">` included, is served as-is. See [Template Tags vs Page Tags](docs/unirendhead.md#template-tags-vs-page-tags) for the full rules.
+`UnirendHead` owns the per-page SEO tags (`<title>`, `description`, and the OpenGraph and Twitter card tags), so you set those per page rather than in `index.html`. Every other head tag in your template, `<meta name="viewport">` included, is served as-is. See [Template Tags vs. Page Tags](docs/unirendhead.md#template-tags-vs-page-tags) for the full rules.
 
 ```tsx
 import { UnirendHead } from 'unirend/client';
@@ -598,7 +598,7 @@ The following helpers and integrations make it easy to work with these envelopes
 
 ## Error Handling
 
-See setup recommendations and how the framework handles SSR vs client errors in the dedicated guide: [docs/error-handling.md](docs/error-handling.md).
+See setup recommendations and how the framework handles SSR vs. client errors in the dedicated guide: [docs/error-handling.md](docs/error-handling.md).
 
 ## File Upload Helpers
 

@@ -4,7 +4,7 @@
 
 - [Overview](#overview)
 - [Usage](#usage)
-- [Hardcoded vs Loader-Driven Titles](#hardcoded-vs-loader-driven-titles)
+- [Hardcoded vs. Loader-Driven Titles](#hardcoded-vs-loader-driven-titles)
 - [API](#api)
   - [`<UnirendHead>`](#unirendhead)
   - [The `envelope` Prop](#the-envelope-prop)
@@ -20,7 +20,7 @@
   - [Tag Merging and Overrides](#tag-merging-and-overrides)
     - [Which Rule Applies Where](#which-rule-applies-where)
   - [Development-Only Duplicate Warning](#development-only-duplicate-warning)
-  - [Template Tags vs Page Tags](#template-tags-vs-page-tags)
+  - [Template Tags vs. Page Tags](#template-tags-vs-page-tags)
     - [Overriding a Template Meta](#overriding-a-template-meta)
   - [Shared Layout & Error Component Pattern](#shared-layout--error-component-pattern)
   - [Global Provider Pattern (Theme, Language, Etc.)](#global-provider-pattern-theme-language-etc)
@@ -60,7 +60,7 @@ function HomePage() {
 
 You can use `UnirendHead` in any component, layouts, pages, error boundaries. Later tags in the rendered document order take precedence for last-write-wins attributes (see [Tag Merging and Overrides](#tag-merging-and-overrides)).
 
-## Hardcoded vs Loader-Driven Titles
+## Hardcoded vs. Loader-Driven Titles
 
 There are two common patterns for setting head tags:
 
@@ -470,7 +470,7 @@ setRepeatableHeadKeys(['description', 'og:title']);
 > [!IMPORTANT]
 > Call `setRepeatableHeadKeys` from a module imported by both server and client entries. The setting also controls whether a custom `meta.page.tags` entry can render beside a named field with the same key, so it can affect production output.
 
-### Template Tags vs Page Tags
+### Template Tags vs. Page Tags
 
 Use `UnirendHead` for tags that describe the current page. Keep tags that describe the document or site in `index.html`.
 
@@ -571,7 +571,7 @@ The merge happens the same way during server rendering and in the browser. Both 
 
 During `renderToString`, `UnirendHead` reads a collector object from React context (provided by `UnirendHeadProvider`, which Unirend wraps your app with automatically). Each `<UnirendHead>` instance pushes its tags into the collector synchronously. After rendering, the collected data is serialized to HTML strings, and `<html>` / `<body>` attributes are merged into the template tags, while `<title>`/`<meta>`/`<link>` are injected into the `<!--ss-head-->` slot.
 
-The template's own head tags are merged against the page's at the same time, following the ownership rules in [Template Tags vs Page Tags](#template-tags-vs-page-tags). The tags `UnirendHead` manages for every page are dropped from the template when it is first loaded, and the template's remaining metas are matched against the page's by identity, with a page's version replacing the template's so the served head never carries both.
+The template's own head tags are merged against the page's at the same time, following the ownership rules in [Template Tags vs. Page Tags](#template-tags-vs-page-tags). The tags `UnirendHead` manages for every page are dropped from the template when it is first loaded, and the template's remaining metas are matched against the page's by identity, with a page's version replacing the template's so the served head never carries both.
 
 `UnirendHead` renders `null` on the server, the tags never appear in the rendered body HTML, only in `<head>` via the injection.
 

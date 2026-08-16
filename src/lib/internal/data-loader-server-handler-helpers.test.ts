@@ -61,6 +61,12 @@ const createMockReply = () => {
       (reply as any)._headers[name] = value;
       return reply;
     }),
+    getHeaders: mock(() => ({ ...((reply as any)._headers || {}) })),
+    removeHeader: mock((name: string) => {
+      (reply as any)._headers = (reply as any)._headers || {};
+      delete (reply as any)._headers[name];
+      return reply;
+    }),
     hijack: mock(() => {
       (reply as any).sent = true;
       (reply as any).raw.headersSent = true;
@@ -488,6 +494,81 @@ describe('DataLoaderServerHandlerHelpers', () => {
         expect(result.result.status).toBe('success');
         expect((result.result as any).data).toEqual({ test: true });
       }
+    });
+
+    it('returns result: false when the handler sent its own response', async () => {
+      const helpers = new DataLoaderServerHandlerHelpers();
+      const request = createMockRequest();
+      const mockControlledReply = {
+        header: mock(() => {}),
+        getHeader: mock(() => undefined),
+        getHeaders: mock(() => ({})),
+        removeHeader: mock(() => {}),
+        hasHeader: mock(() => false),
+        // What a handler that sent through APIResponseHelpers leaves behind.
+        // `sent` covers a hijacked reply as well as an ended one.
+        sent: true,
+        raw: { destroyed: false },
+      };
+
+      helpers.pageDataHandlerMethod.register('sent-page', () => false);
+
+      const result = await helpers.callHandler({
+        originalRequest: request,
+        controlledReply: mockControlledReply as any,
+        pageType: 'sent-page',
+        routeParams: {},
+        queryParams: {},
+        requestPath: '/sent-page',
+        originalURL: '/sent-page',
+      });
+
+      expect(result.exists).toBe(true);
+      expect(result.version).toBe(1);
+      expect(result.result).toBe(false);
+    });
+
+    it('throws when the handler returned false without sending', async () => {
+      // The HTTP route throws handler_returned_false_without_sending for this,
+      // so the internal short-circuit has to as well. Letting it return `false`
+      // instead would hand the caller a "response already sent" that is not
+      // true, and the mistake would surface as whatever the caller did next
+      // rather than as the handler bug it is.
+      const helpers = new DataLoaderServerHandlerHelpers();
+      const request = createMockRequest();
+      const mockControlledReply = {
+        header: mock(() => {}),
+        getHeader: mock(() => undefined),
+        getHeaders: mock(() => ({})),
+        removeHeader: mock(() => {}),
+        hasHeader: mock(() => false),
+        sent: false,
+        raw: { destroyed: false },
+      };
+
+      helpers.pageDataHandlerMethod.register('forgot-to-send', () => false);
+
+      let thrown: unknown;
+
+      try {
+        await helpers.callHandler({
+          originalRequest: request,
+          controlledReply: mockControlledReply as any,
+          pageType: 'forgot-to-send',
+          routeParams: {},
+          queryParams: {},
+          requestPath: '/forgot-to-send',
+          originalURL: '/forgot-to-send',
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as { errorCode?: string }).errorCode).toBe(
+        'handler_returned_false_without_sending',
+      );
+      expect((thrown as { pageType?: string }).pageType).toBe('forgot-to-send');
     });
 
     it('selects highest version when registered out of order', async () => {

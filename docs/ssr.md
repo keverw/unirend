@@ -22,7 +22,7 @@
 - [Create SSR Server](#create-ssr-server)
   - [Create Production SSR Server](#create-production-ssr-server)
   - [Create Development SSR Server](#create-development-ssr-server)
-  - [Asset Serving vs Runtime Behavior](#asset-serving-vs-runtime-behavior)
+  - [Asset Serving vs. Runtime Behavior](#asset-serving-vs-runtime-behavior)
   - [Organization Suggestion](#organization-suggestion)
   - [SSRServer Class](#ssrserver-class)
   - [Construction](#construction)
@@ -44,7 +44,9 @@
     - [Example: TLS Over a Private Network (NodeAdapter)](#example-tls-over-a-private-network-nodeadapter)
   - [Custom API Routes](#custom-api-routes)
     - [API Route Handler Signature and Parameters:](#api-route-handler-signature-and-parameters)
-  - [Param Source Parity (Data Loader vs API Routes):](#param-source-parity-data-loader-vs-api-routes)
+  - [Param Source Parity (Data Loader vs. API Routes):](#param-source-parity-data-loader-vs-api-routes)
+  - [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
+    - [Which 404 to Reach For](#which-404-to-reach-for)
   - [Request Context Injection](#request-context-injection)
 - [Advanced Asset Request Paths](#advanced-asset-request-paths)
 - [Multi-App SSR Support](#multi-app-ssr-support)
@@ -58,10 +60,14 @@
     - [1. Subdomain-Based Routing](#1-subdomain-based-routing)
     - [2. Path-Based Routing](#2-path-based-routing)
     - [3. Cookie-Based Routing](#3-cookie-based-routing)
+  - [Gating Handlers on the Active App Bundle](#gating-handlers-on-the-active-app-bundle)
+    - [Checked Bundle Keys](#checked-bundle-keys)
+    - [Example 1: Gating a Handler on the Active App Bundle](#example-1-gating-a-handler-on-the-active-app-bundle)
+    - [Example 2: Per-Bundle Response Helpers](#example-2-per-bundle-response-helpers)
   - [Important Notes](#important-notes)
     - [Mode Enforcement](#mode-enforcement)
     - [Shared Resources](#shared-resources)
-    - [Per-App Resources](#per-app-resources)
+    - [Per-Bundle Resources](#per-bundle-resources)
     - [Resource Considerations](#resource-considerations)
     - [Error Page Patterns](#error-page-patterns)
     - [Validation](#validation)
@@ -73,6 +79,7 @@
     - [JSON-Only (SSR Compatible)](#json-only-ssr-compatible)
     - [Web-Only (Plain Web Server)](#web-only-plain-web-server)
     - [Split Handlers (Mixed API + Web Server)](#split-handlers-mixed-api--web-server)
+  - [Declining a Request on an API Server](#declining-a-request-on-an-api-server)
 - [Graceful Shutdown](#graceful-shutdown)
   - [Force Shutdown](#force-shutdown)
 - [WebSockets](#websockets)
@@ -166,7 +173,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - Client-identity resolution. **On by default.** Resolves the real end-user `request.clientIP` (the connecting IP, overridden by a trusted `X-SSR-Original-IP`), the resolved end-user `request.clientUserAgent` (the raw header, overridden by a trusted `X-SSR-Forwarded-User-Agent`), a frozen `request.clientInfo` (correlation ID, forwarded-source flags, resolved identity), and emits `X-Request-ID` / `X-Correlation-ID` response headers.
   - Runs before access logging, so `request.clientIP` / `request.clientUserAgent` / `request.clientInfo` are available in access-log templates (`{{ip}}`, `{{userAgent}}`) and both hooks, plus all handlers.
   - Config: `trustForwardedHeaders`, `forwardedRequestIDValidator`, `setResponseHeaders`, `logging`. Pass `false` to disable entirely (then `request.clientIP` equals `request.connectionIP`, `request.clientUserAgent` equals `request.userAgent`, and `request.clientInfo` is `undefined`).
-  - See [Client Identity](./client-identity.md) for the full model and the `connectionIP` vs `clientIP` distinction.
+  - See [Client Identity](./client-identity.md) for the full model and the `connectionIP` vs. `clientIP` distinction.
 - `getRequestID?: (request: FastifyRequest) => string | undefined | Promise<string | undefined>`
   - Custom generator for `request.requestID`, the value the API/Page envelope helpers use for `request_id`. Set once per request before access logging and plugins run, so it is available as the `{{requestID}}` access-log template variable, in access-log hooks (`ctx.request.requestID`), plugins, and all handlers.
   - When not set, the framework generates a ULID (globally unique, safe across instances/restarts). Use the override to adopt an upstream/proxy `X-Request-ID` from a trusted header.
@@ -703,29 +710,31 @@ main().catch(console.error);
 Notes:
 
 - `publicAppConfig` is passed to the Unirend context and available via the `usePublicAppConfig()` hook on both server (during rendering) and client (after HTML injection).
-- For accessing config in components vs non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Public App Config Pattern](../README.md#public-app-config-pattern).
+- For accessing config in components vs. non-component code (loaders), fallback patterns, and SPA-only dev mode considerations, see: [Public App Config Pattern](../README.md#public-app-config-pattern).
 
 **Per-Request CDN Override Example:**
 
 You can override the CDN URL per-request in middleware for region-specific CDNs:
 
 ```typescript
-const server = serveSSRBuilt(buildDir, {
-  // Default CDN URL
-  CDNBaseURL: 'https://cdn.example.com',
-});
-
 // Override CDN URL based on user region
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  // Detect region (via IP geolocation, cookie, header, etc.)
-  const region = detectRegion(request);
+const regionCDNPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request, reply) => {
+    // Detect region (via IP geolocation, cookie, header, etc.)
+    const region = detectRegion(request);
 
-  if (region === 'EU') {
-    request.CDNBaseURL = 'https://eu-cdn.example.com';
-  } else if (region === 'APAC') {
-    request.CDNBaseURL = 'https://apac-cdn.example.com';
-  }
-  // Falls back to default CDNBaseURL if not overridden
+    if (region === 'EU') {
+      request.CDNBaseURL = 'https://eu-cdn.example.com';
+    } else if (region === 'APAC') {
+      request.CDNBaseURL = 'https://apac-cdn.example.com';
+    }
+    // Falls back to default CDNBaseURL if not overridden
+  });
+};
+
+const server = serveSSRBuilt(buildDir, {
+  CDNBaseURL: 'https://cdn.example.com',
+  plugins: [regionCDNPlugin],
 });
 ```
 
@@ -825,7 +834,7 @@ Notes:
 - `window.__DOMAIN_INFO__` contains `{ hostname, rootDomain }` computed from the request hostname server-side. Access it in components via `useDomainInfo()` (see [Unirend Context](../docs/unirend-context.md)). Useful for setting cookies that span subdomains without hardcoding the domain.
 - **HTML Template**: The `template` path in development mode is fully customizable. Specify any HTML file path (e.g., `./index.html`, `./src/app.html`, etc.). The template is read fresh on each request and transformed by Vite for HMR support.
 
-### Asset Serving vs Runtime Behavior
+### Asset Serving vs. Runtime Behavior
 
 `serveSSRWithHMR` and `serveSSRBuilt` control the **asset serving strategy**, which is how your code is loaded and served:
 
@@ -846,7 +855,7 @@ See [Dev Mode](./dev-mode.md) for full details on `initDevMode()` and `getDevMod
 
 Since your project will most likely use both `serveSSRWithHMR` and `serveSSRBuilt`, consider these options:
 
-- Single entry script that switches on an env/arg (dev vs prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
+- Single entry script that switches on an env/arg (dev vs. prod) and calls `serveSSRWithHMR` or `serveSSRBuilt`.
 - Separate scripts (e.g., `serve-hmr.ts` and `serve-built.ts`).
 - For production binaries, you can bundle your server script with a tool like Bun:
   - `bun build serve-built.ts --outdir build/serve --external vite` and `bun run build/serve/serve-built.js`
@@ -901,7 +910,7 @@ In addition to the [shared server configuration](#shared-server-configuration), 
     - **Regular API requests** (`isPageData=false`): Standard API endpoints (e.g., `/api/v1/users`, `/api/v1/account/create`) for operations like creating accounts, updating data, etc. These return API Response Envelopes.
 - `publicAppConfig?: Record<string, unknown>`
   - Optional configuration object available via the `usePublicAppConfig()` hook on both server (during SSR/SSG rendering) and client (after HTML injection) in both dev and prod modes.
-  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Public App Config Pattern](../README.md#public-app-config-pattern) for usage in components vs loaders.
+  - Use for runtime configuration (API URLs, feature flags, build info, etc.). See [Public App Config Pattern](../README.md#public-app-config-pattern) for usage in components vs. loaders.
   - Within a request, read the config via `usePublicAppConfig()` in components (available on both server and client). Each request receives a deep-cloned, deep-frozen snapshot, so mutations inside a request are isolated and do not affect other requests. If you hold a reference to the object (or a sub-object within it) that you passed here, you can mutate it between requests and the next clone will pick up the change. Updates are global (all subsequent requests, not a specific user). Use `requestContext` for per-user or per-request values.
 - `containerID?: string`
   - Client container element ID (default `"root"`).
@@ -1183,7 +1192,7 @@ Set to `true` before any response is sent for a static file. Defaults to `false`
 
 `isStaticAsset` is also available as an access-log field. Use `{{isStaticAsset}}` in finish/response templates, or read `ctx.isStaticAsset` in `accessLog.onResponse`. Request/start access logs run before static content has marked the request, so they always see `false`.
 
-See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs `onResponse` patterns and the `isStaticAsset` guard.
+See [Hook Ordering and Cookie Renewal](./built-in-plugins/staticContent.md#hook-ordering-and-cookie-renewal) in the `staticContent` plugin docs for full details on `onSend` vs. `onResponse` patterns and the `isStaticAsset` guard.
 
 Two related markers exist, and neither is an access-log field: `request.isStaticRequest` is the opt-in early pathname classification described in [Advanced Asset Request Paths](#advanced-asset-request-paths), and `request.isStaticContentMatch` is set later when a configured static mapping matches, whether or not a file was served. The `staticContent` docs linked above compare all three.
 
@@ -1238,7 +1247,7 @@ Example paths (assuming `apiEndpointPrefix = "/api"`, `pageDataEndpoint = "page_
 Handler signature and return type:
 
 - `server.pageDataHandler.register(pageType, handler)` or `server.pageDataHandler.register(pageType, version, handler)`
-- Handler signature: `(originalRequest, reply, params) => PageResponseEnvelope | APIResponseEnvelope`
+- Handler signature: `(originalRequest, reply, params) => PageResponseEnvelope | APIResponseEnvelope | false | Trigger404Signal`
 - Handler parameters:
   - `originalRequest`: the Fastify request that initiated the render. Use only for transport/ambient data (cookies, headers, IP, auth tokens).
   - `reply`: controlled object scoped to this handler with:
@@ -1260,6 +1269,8 @@ Guidance:
 - Do not reconstruct routing info from `originalRequest`
 - Use `originalRequest` only for transport/ambient data (cookies, headers, IP, auth tokens)
 - Use `reply` to set additional headers and cookies when needed. HTTP status and JSON content-type are managed by the framework from the envelope
+- Return `false` when you have already sent the response yourself (for example through a validation helper), so the framework does not send a second one
+- Return `request.trigger404()` to decline the request entirely, so the server answers exactly as it would for a page type that was never registered. Call it before any expensive work. See [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path)
 - During SSR, `originalRequest` is the same request that initiated the render. After hydration, client-side loader fetches include their own transport context
 
 Recommendation:
@@ -1368,7 +1379,7 @@ When page data loader handlers are registered on the same `SSRServer` instance i
 When using versioned page data handlers (see [Page Data Loader Handlers and Versioning](#page-data-loader-handlers-and-versioning)), short-circuit and HTTP requests behave differently:
 
 - **Short-circuit (SSR initial load)**: Automatically selects the **highest version** registered for the page type. This ensures SSR always serves fresh HTML with the latest handler logic.
-- **HTTP requests (client-side navigation)**: Explicitly target a specific version via the URL path (e.g., `/api/v1/page_data/home` vs `/api/v2/page_data/home`), determined by your frontend loader's `pageDataEndpoint` configuration.
+- **HTTP requests (client-side navigation)**: Explicitly target a specific version via the URL path (e.g., `/api/v1/page_data/home` vs. `/api/v2/page_data/home`), determined by your frontend loader's `pageDataEndpoint` configuration.
 
 **Version Consistency Considerations:**
 
@@ -1540,12 +1551,12 @@ Notes:
 - Endpoints are mounted under `apiEndpoints.apiEndpointPrefix` and optionally `/v{n}` when `versioned` is true.
 - `apiEndpoints.apiEndpointPrefix: "/"` mounts API routes at the site root and makes every path an API path for error/not-found classification.
 - SSR servers disallow wildcard endpoints at root prefix. Use a non-root prefix like `/api` to allow wildcards.
-- Handlers must return a valid API envelope. Status codes are taken from `status_code`.
+- Handlers must return a valid API envelope. Status codes are taken from `status_code`. Two other returns are accepted: `false` when the handler already sent the response itself, and `request.trigger404()` to decline the request so the server answers as it would for an unregistered route. See [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path).
 - Available helpers: `.api.get`, `.api.post`, `.api.put`, `.api.delete`, `.api.patch`.
 
 #### API Route Handler Signature and Parameters:
 
-- Handler signature: `(request, reply, params) => APIResponseEnvelope`
+- Handler signature: `(request, reply, params) => APIResponseEnvelope | false | Trigger404Signal`
 - Handler parameters:
   - `request`: Fastify request
   - `reply`: controlled object with the same surface as data loader handlers:
@@ -1563,7 +1574,7 @@ Notes:
     - `originalURL`: full original URL
     - `APIResponseHelpers`: the helpers class configured on this server. Use this instead of importing directly, so custom subclasses are respected
 
-### Param Source Parity (Data Loader vs API Routes):
+### Param Source Parity (Data Loader vs. API Routes):
 
 - Both handlers receive a `params` object with a similar routing context, but the source differs:
   - Data loader handlers: `params` are produced by the frontend page data loader and sent in the POST body (SSR short-circuit passes the same shape internally for consistency). Treat this as the authoritative routing context for page data.
@@ -1571,11 +1582,104 @@ Notes:
 - In both cases, the best practice is to use `originalRequest` (the Fastify request) only for transport/ambient data (cookies/headers/IP/auth), and use `reply` for headers/cookies you want on the HTTP response. This also makes it easy to port code between page data loader handlers and custom API handlers.
 - Use `request.clientIP` (not `request.ip`) to read the resolved real end-user IP. The framework sets `request.connectionIP` once per request using `getConnectionIP` (if configured) or falling back to `request.ip` (which reflects Fastify proxy handling when `fastifyOptions.trustProxy` is configured), and `request.clientIP` starts from it and is overridden with the forwarded original IP across an SSR → API hop (when `clientInfo` resolution is enabled). Both are the same in plugins, hooks, page data loader handlers, and API route handlers - so you never need to re-implement proxy header logic per handler. Use `request.connectionIP` for connection-level decisions and debugging. For per-user rate limiting prefer `request.clientIP` (the real user), because `connectionIP` can be a shared CDN/proxy address.
 
+### Abandoning a Request Into the Not-Found Path
+
+`request.trigger404()` lets a page data handler or an API route handler give up on a request so the server answers **exactly as if no handler had ever been registered** for that route:
+
+```ts
+server.pageDataHandler.register('dashboard', async (request, reply, params) => {
+  if (request.activeSSRApp !== 'app-shell') {
+    return request.trigger404();
+  }
+
+  // ...
+});
+```
+
+Note: That comparison against a plain string is not checked for you, and a typo in it fails open. See [Checked Bundle Keys](#checked-bundle-keys) for the two ways to make it a compile error.
+
+Over HTTP, which is every API route handler and every page data request the browser makes, the response is byte-for-byte what a genuine miss on that route produces, because it is produced by the same not-found resolution: your `APIHandling.notFoundHandler` (or `notFoundHandler` on an `APIServer`) if you configured one, your `APIResponseHelpersClass` if you registered one, the framework default otherwise, with the same status code and the same `Cache-Control: no-store`. Nothing in the response says a handler ran. That is the point, and it is what a hand-built 404 envelope cannot give you: yours will differ in some field from the one a real miss produces, and the difference is a fact about the deployment a caller can probe for.
+
+The SSR internal short-circuit is scoped out of that guarantee, and the note at the end of this section says why.
+
+#### Which 404 to Reach For
+
+Three things produce a 404 on an SSR server, and they are not interchangeable. Two of them go through an envelope, and those are the ones you want for a page.
+
+| You want to say | Use | What the visitor gets |
+| --- | --- | --- |
+| This record does not exist, or you may not see it (no such user, no such post) | A 404 page envelope from the page data handler, via `createPageErrorResponse({ statusCode: 404, ... })`, identical on both paths | Your React 404 UI for that route, HTTP `404` |
+| This handler must look like it was never registered (chiefly a handler gated to one app bundle) | `return request.trigger404()` | The server's shared not-found envelope as the route's loader data, so its component renders your 404 state, HTTP `404` |
+| This route is not here (plugin and middleware level) | `return reply.callNotFound()` in a raw plugin route | An API path gets the envelope, a web path renders, HTTP `404` |
+
+The first two are the normal way to 404 a page, and they are the ones that keep your branding. Both put a `status_code` of `404` in the loader's envelope, the renderer lifts it to the response status, and your route's own component decides what a missing thing looks like. Because it is the envelope doing the work, a client-side navigation to the same URL renders the identical 404 state without a server round trip for the page shell.
+
+Which of the two you want comes down to **what is being hidden**, not to how private the data is. They overlap more than the table suggests.
+
+Gating a record on permission does not need `trigger404()`. What that case needs is for "this post does not exist" and "you may not see this post" to be the same response, and the best same-response is your own tailored one: `createPageErrorResponse` with `post_not_found` and a real title, returned identically on both paths. That keeps the copy, the `<title>`, and the description that make the page usable when the URL is shared or crawled, and consistency is all the property required. Build both from one helper so the two cannot drift apart later, which is the only way this actually breaks:
+
+```ts
+// Both paths return this, so "missing" and "forbidden" are the same answer.
+const postNotFound = (request: FastifyRequest) =>
+  APIResponseHelpers.createPageErrorResponse({
+    request,
+    statusCode: 404,
+    errorCode: 'post_not_found',
+    errorMessage: 'That post could not be found.',
+    pageMetadata: { title: 'Post not found', description: 'No such post.' },
+  });
+```
+
+`trigger404()` is for the level above that: hiding that the **handler is registered at all**. Its guarantee is byte-identity with an unregistered route, which is what you want when a handler belongs to one app bundle and is reachable from the others, and is why a hand-built envelope cannot substitute there. For a missing post the comparison is against your other post responses, not against a route that does not exist, so the generic server-wide answer buys nothing and costs you the copy. Reach for it when the secret is "this deployment has this handler," not "this row is private."
+
+`callNotFound()` is the Fastify-native way to say not-found, and it is the same idea as `trigger404()` one level up: it says this **HTTP request** matched no route, where `trigger404()` says this **page data handler** declines. So it goes straight to the page level instead of the data level.
+
+The catch is what "matched no route" means on an SSR server. Every page URL here is already unmatched. That is how SSR works: a `GET '*'` catch-all hands web requests to React, and the not-found handler catches the rest. So putting a request back on the not-found path does not hide it, it puts it back on the ordinary page-rendering path. That holds wherever the call comes from. A raw plugin route and an `onRequest` hook both land in the same place, so making the call earlier is not a way around it.
+
+What comes out of that depends on whether the active app bundle routes the URL, and the status is `404` either way. If the bundle does not route it, React falls through to its own catch-all and you get your 404 page, which is exactly what you asked for. If the bundle does route it, the app renders that page, its loaders run and return real data, and the visitor gets the real page under the `404`. The second case is the whole problem, and it is the case you are in whenever you reach for this to hide a page that exists. On a multi-bundle server it also depends on which bundle is active, since the render goes through `request.activeSSRApp`.
+
+`trigger404()` does not have this problem because it acts one level down, where the data is produced. The route's component still renders, exactly as it does above, but its loader envelope is the 404 one, so there is nothing real for it to show.
+
+So it is the wrong tool for either case above. A handler declining because the request is not for its app bundle is `trigger404()`. A post or a user that is missing, or that this visitor may not see, is one tailored envelope returned for both.
+
+Rules for using it:
+
+- **Return the value.** `return request.trigger404();` The `return` is what carries the control flow, and it makes the handler visibly stop. Nothing is thrown, so nothing lands in the error path or gets logged as a failure.
+- **Call it first.** Before any expensive work. Headers and cookies set earlier in the handler are rolled back, so a `reply.setCookie()` before the trigger does not ship on the 404 and cannot give the handler away. That rollback covers the HTTP path, meaning API route handlers and page data requests over HTTP. It does not apply on the SSR internal short-circuit, whose reply belongs to the page request and is shared with every loader running in parallel, so rolling it back there could remove a header another loader had just set. Response timing is the remaining tell either way: a triggered 404 ran your handler first.
+
+  The rollback starts when your handler is invoked, so it covers what the handler sets and not what middleware set before it. That is the right boundary rather than a gap: a hook that renews a session cookie runs on a genuine miss too, so keeping its cookie is both what a real miss looks like and what you want to happen. Only the handler's own additions are the ones that could give it away.
+
+  The exception is a hook that sets reply state _conditionally on the matched route_. Those hooks run on both paths, but only the matched one gives them a route to branch on, so a hook that sets a header from `request.routeOptions.url` sets it on a trigger and not on a genuine miss. Taking the snapshot earlier would not help and would invert the problem, since a hook that sets a header unconditionally sets it on both paths and rolling back past the hooks would strip it from the trigger alone. If you have hooks that mutate the reply based on the matched route, keep them off the routes you gate.
+
+- **A forgotten `return` still 404s.** If the call happened but the handler returned an ordinary value anyway, the 404 wins and the handler's value is discarded, in development and production alike. The withheld data never ships. The mistake is logged through `request.log.error` with `errorCode: 'trigger_404_missing_return'` naming the route, so it is loud without being a behavior difference.
+- **A throw is the one thing that escapes the 404.** If the handler throws after calling `trigger404()`, the request takes the ordinary error path and answers 500, the same as any other handler error. That is the one case where a caller can tell the route exists, since a genuine miss never answers 500. Return immediately after the call and keep anything that can fail above it.
+- **An already-sent response cannot be taken back.** If the handler sent a response before triggering, that response stands and the trigger is logged as `trigger_404_after_response_sent`. This is a handler bug, not a supported ordering.
+- **It exists only inside a handler.** Valid in API route handlers and page data handlers on both `SSRServer` and `APIServer`, whether registered on the server or by a plugin. Called from a plugin hook, middleware, or a raw plugin route it throws immediately rather than being silently ignored, since nothing there would observe the returned value. In a raw plugin route, `return reply.callNotFound()` instead, which on an SSR server is classified the same way: an API or page-data path gets the envelope, a web path renders, and either way the status is `404`. See [Which 404 to Reach For](#which-404-to-reach-for) for when that is the right tool and when it is not.
+- **A page data handler gets the page, not the transport.** When a not-found handler answers a page data request, its third argument carries `pageData` with the `pageType`, `routeParams`, `queryParams`, `requestPath`, and `originalURL` the frontend asked for, and `request.url` is that frontend URL rather than `/api/v1/page_data/<type>`. This is the same whether the request missed over HTTP or was abandoned by a trigger during an SSR render, so it is safe to put in a response, and it is what a not-found page actually wants to name. A plain API route has no `pageData` and keeps its own URL.
+
+  It is handed over as `params.pageData` and is never something to read off the request yourself. Unirend fills it from the loader's POST body on the HTTP path and from the loader context directly on the SSR short-circuit, which builds no HTTP request and has no body to read, so your handler sees one shape either way. It mirrors the params object a page data handler receives, but it is a subset of it: the four fields the frontend sent, plus the `pageType`. There is no `version`, since an unregistered page type has no registered version to name, and no `invocationOrigin`, since HTTP and short-circuit are the two things this is designed not to distinguish.
+
+  `pageData` is optional, so treat it as absent rather than assuming it. It is undefined for an API route, and also for a request to the page data endpoint that did not come from a unirend loader, such as a direct `curl` with no body or a body missing `original_url`. In that case `request.url` is left as the endpoint URL, since there is no frontend view to report. Write the fallback explicitly:
+
+  ```ts
+  const page = params.pageData?.originalURL ?? request.url;
+  ```
+
+  A request with no loader body does not reach a registered route's handler at all: the route validates `request_path` and `original_url` first and rejects it, so that request answers a validation error where an unregistered page type answers 404. Nothing about `trigger404()` applies there, since the handler never runs.
+
+  `pageData` is specific to the not-found handler. `APIHandling.errorHandler` does not receive it, and its `request` is the ordinary Fastify one rather than a `NotFoundRequest`. Nothing is withheld there: the stripping exists so a triggered 404 cannot be told apart from a genuine miss, and a 500 has no such pair to be confused with. If an error handler wants the page a failing page data request was for, there is no params field to take it from, so read `original_url` off `request.body` yourself, which is the loader's POST body and the same field `pageData` is derived from. That applies to the HTTP path only. A page data handler that throws during an SSR render never reaches `APIHandling.errorHandler`, since the throw propagates out through the render into `get500ErrorPage`, which is the app's own 500 page and the right answer for a visitor mid-load.
+
+- **Not available in SSG.** Local page data loaders never receive a Fastify request, so there is no `trigger404` to call. Return `createPageErrorResponse` with a 404 status instead.
+
+The return type is an opaque `Trigger404Signal`, exported from `unirend/server` for code that needs to name it. Handlers are unaffected by its presence, but code that consumes a handler's return type sees the extra union member.
+
+One note specific to SSR. During the initial render, a page data handler registered on the same `SSRServer` is [short-circuited](#short-circuit-data-handlers), called in-process rather than over HTTP. A trigger there produces the not-found envelope inline, with no separate HTTP response, and the page renders its 404 state. The envelope carries the SSR request's own `request_id` and `request_timestamp`, since it was produced for that request and is piggybacking on it. The split to keep in mind: **the request is who is asking, `pageData` is what was asked for.** The request is the real one the visitor made, which is what you want for cookies, auth, and client IP, and on this path that is the browser's page request rather than a page data POST. So `request.body` and `content-type` describe the page load here, and a handler that reads them will see something different than it would on the HTTP path. `request.url`, `isPageData`, and `pageData` are the same either way, and are what a response should be built from. See [Data Loaders](./data-loaders.md#page-type-handler-fetchshort-circuit-data-loader).
+
 ### Request Context Injection
 
 SSR supports injecting per-request context data that will be available on the client.
 
-**Request Context vs Public App Config:**
+**Request Context vs. Public App Config:**
 
 - **Request Context**: Per-page data that can vary between requests and be mutated on the client (e.g., page-specific state, user preferences, theme)
 - **Public App Config**: Safe-to-share configuration shared across all pages (e.g., API URLs, feature flags, build info). Read within a request via `request.publicAppConfig` on SSR/API servers and `usePublicAppConfig()` in components. Each request gets a deep-frozen clone that is immutable within the request. You can mutate the source between requests to update values globally (e.g., rotating an API endpoint, updating a year), but those changes apply to all subsequent requests, not a specific user. Unlike `request.requestContext`, public app config is not forwarded, merged back, or injected by an API server.
@@ -1707,24 +1811,29 @@ Ordinary unmapped routes, unmapped API misses, traversal-rejected URLs, non-GET/
 A single `SSRServer` instance can serve **multiple distinct React applications**, switchable via middleware based on request context (subdomain, path, headers, etc.). This is valuable for:
 
 - **Monorepo deployments**: Serve marketing + app sites from one server
-- **Subdomain routing**: `marketing.example.com` vs `app.example.com` with different builds
+- **Subdomain routing**: `marketing.example.com` vs. `app.example.com` with different builds
 - **A/B testing**: Different frontend builds for experimentation
 - **Resource efficiency**: Consolidate multiple frontend projects into one server process
 
+Each of those React applications is an **app bundle**: its own source folder, its own Vite build, its own HTML template and client bundle. A bundle is registered with `registerBuiltApp()` or `registerHMRApp()` under a **bundle key** (the `appKey` argument), selected per request with `request.setActiveSSRApp(key)`, and read back as `request.activeSSRApp`. The server the bundles are registered on always has one of its own, built from the base config, under the reserved key `__default__`.
+
 **Key Features:**
 
-- **Mode enforcement**: Dev server = dev apps only, prod server = prod apps only
-- **Per-app configuration**: Each app gets its own `publicAppConfig`, templates, static assets, and error pages
-- **Shared resources**: API handlers, plugins, and cookie policies are shared across all apps
+- **Mode enforcement**: Dev server = dev bundles only, prod server = prod bundles only
+- **Per-bundle configuration**: Each bundle gets its own `publicAppConfig`, templates, static assets, and error pages
+- **Shared resources**: API handlers, plugins, and cookie policies are shared across all bundles
+
+**What is server-wide.** Page data handlers, API route handlers, plugins, and the `APIResponseHelpers` class are registered on the **server**, not on a bundle, exactly the way middleware already is. There is no per-bundle registry and no way to register a different helpers class per bundle. A handler that logically belongs to one bundle is reachable from all of them, and the supported way to tailor behavior per bundle is to branch on `request.activeSSRApp` inside the handler or the helpers class. See [Gating Handlers on the Active App Bundle](#gating-handlers-on-the-active-app-bundle) for both patterns.
 
 ### Monorepo Structure Tip
 
-We recommend moving the default app's source into its own subfolder so it stays separate from the shared server code (plugins, start script, etc.) that lives at the root. Build output follows the same convention as the rest of the templates. Everything goes under `build/<app-name>/` at the repo root (already gitignored), with per-app subfolders inside it. A clean layout looks like this:
+We recommend moving the default bundle's source into its own subfolder so it stays separate from the shared server code (plugins, start script, etc.) that lives at the root. Grouping the bundles under one `app-bundles/` folder keeps them visibly distinct from the server. Build output follows the same convention as the rest of the templates. Everything goes under `build/<app-name>/` at the repo root (already gitignored), with per-bundle subfolders inside it. A clean layout looks like this:
 
 ```
 src/apps/my-app/
-  app-a/               ← default app source (EntrySSR, EntryClient, Routes, components, vite.config.ts)
-  app-b/               ← second app source
+  app-bundles/
+    app-a/             ← default bundle source (EntrySSR, EntryClient, Routes, components, vite.config.ts)
+    app-b/             ← second bundle source
   server/              ← shared server code (plugins, ssr-component.ts, start.ts)
   serve-built.ts
   serve-hmr.ts
@@ -1737,14 +1846,14 @@ build/my-app/          ← gitignored at repo root (same convention as SSG/SSR t
   app-b/server/
 ```
 
-Build scripts chain each app's client and server builds back to back. The serve entry at the root registers additional apps via `registerBuiltApp()` / `registerHMRApp()`, pointing each app at its own build folder under the shared `build/` directory:
+Build scripts chain each bundle's client and server builds back to back. The serve entry at the root registers additional bundles via `registerBuiltApp()` / `registerHMRApp()`, pointing each one at its own build folder under the shared `build/` directory:
 
 ```json
 {
-  "my-app:build:app-a:client": "cd src/apps/my-app/app-a && vite build --outDir ../../../../build/my-app/app-a/client --base=/ --ssrManifest",
-  "my-app:build:app-a:server": "cd src/apps/my-app/app-a && vite build --outDir ../../../../build/my-app/app-a/server --ssr EntrySSR.tsx",
-  "my-app:build:app-b:client": "cd src/apps/my-app/app-b && vite build --outDir ../../../../build/my-app/app-b/client --base=/ --ssrManifest",
-  "my-app:build:app-b:server": "cd src/apps/my-app/app-b && vite build --outDir ../../../../build/my-app/app-b/server --ssr EntrySSR.tsx",
+  "my-app:build:app-a:client": "cd src/apps/my-app/app-bundles/app-a && vite build --outDir ../../../../../build/my-app/app-a/client --base=/ --ssrManifest",
+  "my-app:build:app-a:server": "cd src/apps/my-app/app-bundles/app-a && vite build --outDir ../../../../../build/my-app/app-a/server --ssr EntrySSR.tsx",
+  "my-app:build:app-b:client": "cd src/apps/my-app/app-bundles/app-b && vite build --outDir ../../../../../build/my-app/app-b/client --base=/ --ssrManifest",
+  "my-app:build:app-b:server": "cd src/apps/my-app/app-bundles/app-b && vite build --outDir ../../../../../build/my-app/app-b/server --ssr EntrySSR.tsx",
   "my-app:build:serve": "cd src/apps/my-app && bun build serve-built.ts --outdir ../../../build/my-app/serve --target=node --external vite --define 'IS_BUILT=true'",
   "my-app:build": "bun run my-app:build:app-a:client && bun run my-app:build:app-a:server && bun run my-app:build:app-b:client && bun run my-app:build:app-b:server && bun run my-app:build:serve",
   "my-app:serve:built:dev": "node build/my-app/serve/serve-built.js dev",
@@ -1752,20 +1861,26 @@ Build scripts chain each app's client and server builds back to back. The serve 
 }
 ```
 
-Keep the SSR starter template's serve build and run scripts in place alongside the per-app bundle scripts.
+The extra `../` in each `--outDir` compared with a single-app project is the `app-bundles/` level. The serve build still runs from the app root, so its path is unchanged. Keep the SSR starter template's serve build and run scripts in place alongside the per-bundle scripts.
 
-Give each app's Vite config a distinct `appKey` through `withUnirendViteConfig(config, { appKey: 'app-a' })`. Using the same names as the SSR app registrations makes the cache folders easy to recognize. An app without a usable key, root, or config-file identity uses Vite's `__unidentified__` cache folder, which is unrelated to SSR's `__default__` app and is shared by every app that falls back to it.
+Give each bundle's Vite config a distinct `appKey` through `withUnirendViteConfig(config, { appKey: 'app-a' })`. Using the same names as the SSR bundle registrations makes the cache folders easy to recognize. A bundle without a usable key, root, or config-file identity uses Vite's `__unidentified__` cache folder, which is unrelated to SSR's `__default__` bundle and is shared by every bundle that falls back to it.
 
-If you started from the SSR starter template (which puts source at the folder root), moving the default app into a subfolder is a manual step. Update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
+If you started from the SSR starter template (which puts source at the folder root), moving the default bundle into a subfolder is a manual step. Update the Vite config paths and serve entry accordingly. The framework has no opinion on folder layout.
 
-**If you use the build info option:** add an entry to `build-info.config.json` for each new app's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
+**If you use the build info option:** add an entry to `build-info.config.json` for each new bundle's `current-build-info.ts` output path, and add those paths to `.gitignore` and `.prettierignore` so the generated files are excluded.
 
-**Keep the public-assets check covering every app:** the repo-level `check:public-assets` script finds each app's declared `publicFiles`/`publicFolders` lists through the project's `public-assets.config.json`. The scaffolded file has a single `default` entry pointing at the project root's `consts.ts` and `public/`, so add an entry for each additional app, and update the `default` entry's paths (or rename its key) if you moved the default app's source into a subfolder as recommended above. In the layout from this section, that looks like:
+**Keep the public-assets check covering every bundle:** the repo-level `check:public-assets` script finds each bundle's declared `publicFiles`/`publicFolders` lists through the project's `public-assets.config.json`. The scaffolded file has a single `default` entry pointing at the project root's `consts.ts` and `public/`, so add an entry for each additional bundle, and update the `default` entry's paths (or rename its key) if you moved the default bundle's source into a subfolder as recommended above. In the layout from this section, that looks like:
 
 ```json
 {
-  "app-a": { "publicDir": "app-a/public", "constsFile": "app-a/consts.ts" },
-  "app-b": { "publicDir": "app-b/public", "constsFile": "app-b/consts.ts" }
+  "app-a": {
+    "publicDir": "app-bundles/app-a/public",
+    "constsFile": "app-bundles/app-a/consts.ts"
+  },
+  "app-b": {
+    "publicDir": "app-bundles/app-b/public",
+    "constsFile": "app-bundles/app-b/consts.ts"
+  }
 }
 ```
 
@@ -1776,16 +1891,31 @@ The keys are just labels used in the check's error messages. Every field is opti
 #### Production Mode
 
 ```typescript
-import { serveSSRBuilt } from 'unirend/server';
+import { serveSSRBuilt, type ServerPlugin } from 'unirend/server';
 
-// Create server with default app
+// Route requests to the correct app bundle. Middleware runs as a plugin.
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    const subdomain = request.hostname.split('.')[0];
+
+    if (subdomain === 'marketing') {
+      request.setActiveSSRApp('marketing');
+    } else if (subdomain === 'admin') {
+      request.setActiveSSRApp('admin');
+    }
+    // Falls back to '__default__' (the server's own bundle) if not set
+  });
+};
+
+// Create the server, which brings its own default app bundle
 const server = serveSSRBuilt('./build-main', {
   publicAppConfig: { api_endpoint: 'https://api.example.com' },
+  plugins: [bundleRoutingPlugin],
 });
 
-// Register additional apps - each supports app-specific options (excluding server-wide settings like port/host)
+// Register additional app bundles - each supports bundle-specific options (excluding server-wide settings like port/host)
 server.registerBuiltApp('marketing', './build-marketing', {
-  // App-specific frontend config (injected into client)
+  // Bundle-specific frontend config (injected into client)
   publicAppConfig: { api_endpoint: 'https://marketing-api.example.com' },
 
   // Optional: Custom server entry (default: "EntrySSR")
@@ -1832,25 +1962,22 @@ server.registerBuiltApp('marketing', './build-marketing', {
   // },
 });
 
-// Route requests to the correct app via middleware
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  const subdomain = request.hostname.split('.')[0];
-
-  if (subdomain === 'marketing') {
-    request.setActiveSSRApp('marketing');
-  } else if (subdomain === 'admin') {
-    request.setActiveSSRApp('admin');
-  }
-  // Falls back to '__default__' (main app) if not set
-});
-
 await server.listen(3000);
 ```
 
 #### Development Mode
 
 ```typescript
-import { serveSSRWithHMR } from 'unirend/server';
+import { serveSSRWithHMR, type ServerPlugin } from 'unirend/server';
+
+// Same idea as production: routing is a plugin, not a hook added afterwards.
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    if (request.url.startsWith('/marketing')) {
+      request.setActiveSSRApp('marketing');
+    }
+  });
+};
 
 const server = serveSSRWithHMR(
   {
@@ -1860,10 +1987,11 @@ const server = serveSSRWithHMR(
   },
   {
     publicAppConfig: { api_endpoint: 'http://localhost:3001' },
+    plugins: [bundleRoutingPlugin],
   },
 );
 
-// Register additional apps - each supports app-specific options (excluding server-wide settings like port/host)
+// Register additional app bundles - each supports bundle-specific options (excluding server-wide settings like port/host)
 server.registerHMRApp(
   'marketing',
   {
@@ -1872,7 +2000,7 @@ server.registerHMRApp(
     viteConfig: './vite.marketing.config.ts',
   },
   {
-    // App-specific frontend config (injected into client)
+    // Bundle-specific frontend config (injected into client)
     publicAppConfig: { api_endpoint: 'http://localhost:3002' },
 
     // Optional: Custom folder names (default: 'client' and 'server')
@@ -1889,13 +2017,6 @@ server.registerHMRApp(
   },
 );
 
-// Routing middleware (same as production)
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  if (request.url.startsWith('/marketing')) {
-    request.setActiveSSRApp('marketing');
-  }
-});
-
 await server.listen(3000);
 ```
 
@@ -1903,30 +2024,30 @@ await server.listen(3000);
 
 **registerBuiltApp(appKey, buildDir, options?)**
 
-Register an additional production-mode app. Must be called **before** `listen()`.
+Register an additional production-mode app bundle. Must be called **before** `listen()`.
 
-- `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
-- `buildDir`: Path to the app's build directory
-- `options`: App-specific built options (subset of `serveSSRBuilt()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
+- `appKey`: Unique bundle key selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators. A plain `string` here, so a typo throws at startup rather than failing to compile. See [Checked Bundle Keys](#checked-bundle-keys) for `bundles.key()`, which turns it into a compile error.
+- `buildDir`: Path to the bundle's build directory
+- `options`: Bundle-specific built options (subset of `serveSSRBuilt()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
 
 **registerHMRApp(appKey, sourcePaths, options?)**
 
-Register an additional development-mode app. Must be called **before** `listen()`.
+Register an additional development-mode app bundle. Must be called **before** `listen()`.
 
-- `appKey`: Unique identifier selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators.
+- `appKey`: Unique bundle key selected per request with `request.setActiveSSRApp(appKey)` and readable from `request.activeSSRApp`. Cannot be `"__default__"` or contain path separators. A plain `string` here, so a typo throws at startup rather than failing to compile. See [Checked Bundle Keys](#checked-bundle-keys) for `bundles.key()`, which turns it into a compile error.
 - `sourcePaths`: Dev source paths object (same as `serveSSRWithHMR()`)
-- `options`: App-specific HMR options (subset of `serveSSRWithHMR()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
+- `options`: Bundle-specific HMR options (subset of `serveSSRWithHMR()` options, excluding server-wide settings like `port`, `host`, `logging`, etc.)
 
 **Static Content Defaults (Production Only)**
 
-Each production app (both main and registered) automatically serves static assets unless `staticContentRouter` is set to `false`:
+Each production app bundle (both the server's own and every registered one) automatically serves static assets unless `staticContentRouter` is set to `false`:
 
 - **Default behavior**: Serves files from `buildDir/<clientFolderName>/assets` at the `/assets` URL path
 - **Immutable assets**: Fingerprinted files (e.g., `main-abc123.js`) get `Cache-Control: public, max-age=31536000, immutable`
 - **Disable**: Set `staticContentRouter: false` to disable (useful when using a CDN)
 - **Customize**: Provide your own `staticContentRouter` configuration. If it defines `singleAssetMap`/`folderMap` entries, it replaces the `/assets` default, so mount `/assets` yourself (with `detectImmutableAssets: true`) if you still want the built bundles served locally. `publicFiles`/`publicFolders` entries are still folded into the custom config. A config with no map entries just tunes the cache (sizes, TTLs, headers, compression), and the `/assets` default is still mounted as if you had not customized anything.
 
-Each registered app gets its own independent static content configuration based on its `buildDir` and `clientFolderName`.
+Each registered bundle gets its own independent static content configuration based on its `buildDir` and `clientFolderName`.
 
 **The `public/` Rule**
 
@@ -1971,36 +2092,40 @@ Beyond offloading traffic, this setup also fixes a correctness problem with roll
 
 ### Routing Strategies
 
-Use `request.setActiveSSRApp(appKey)` in early SSR middleware to select a registered app for the current request. The method validates that the app exists, refreshes app-derived request values like `request.publicAppConfig`, and updates the app-level CDN default unless middleware already overrode `request.CDNBaseURL`. `request.activeSSRApp` is read-only.
+Register your routing middleware as a plugin, through the `plugins` option, and call `request.setActiveSSRApp(appKey)` from an early `onRequest` hook to select a registered app bundle for the current request. Plugins are how unirend exposes hooks and routes. The underlying Fastify instance is internal, and does not exist yet at the point you would reach for it. The method validates that the bundle exists, refreshes bundle-derived request values like `request.publicAppConfig`, and updates the bundle-level CDN default unless middleware already overrode `request.CDNBaseURL`. `request.activeSSRApp` is read-only.
 
 #### 1. Subdomain-Based Routing
 
 ```typescript
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  const subdomain = request.hostname.split('.')[0];
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    const subdomain = request.hostname.split('.')[0];
 
-  switch (subdomain) {
-    case 'marketing':
-      request.setActiveSSRApp('marketing');
-      break;
-    case 'app':
-      request.setActiveSSRApp('app');
-      break;
-    // Falls back to '__default__' for main domain
-  }
-});
+    switch (subdomain) {
+      case 'marketing':
+        request.setActiveSSRApp('marketing');
+        break;
+      case 'app':
+        request.setActiveSSRApp('app');
+        break;
+      // Falls back to '__default__' for main domain
+    }
+  });
+};
 ```
 
 #### 2. Path-Based Routing
 
 ```typescript
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  if (request.url.startsWith('/marketing')) {
-    request.setActiveSSRApp('marketing');
-  } else if (request.url.startsWith('/admin')) {
-    request.setActiveSSRApp('admin');
-  }
-});
+const bundleRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request) => {
+    if (request.url.startsWith('/marketing')) {
+      request.setActiveSSRApp('marketing');
+    } else if (request.url.startsWith('/admin')) {
+      request.setActiveSSRApp('admin');
+    }
+  });
+};
 ```
 
 **Important**: When using path-based routing, your React Router routes must match the path prefix to avoid hydration errors. For example, if routing to the `marketing` app on `/marketing/*`, define routes like `/marketing/home`, `/marketing/about`, etc.
@@ -2008,73 +2133,236 @@ server.fastifyInstance.addHook('onRequest', async (request, reply) => {
 #### 3. Cookie-Based Routing
 
 ```typescript
-// Set A/B variant cookie
-server.fastifyInstance.addHook('onRequest', async (request, reply) => {
-  // Check for existing variant cookie
-  let variant = request.cookies['ab-variant'];
+// Set A/B variant cookie. Depends on the cookies plugin.
+const variantRoutingPlugin: ServerPlugin = (pluginHost) => {
+  pluginHost.addHook('onRequest', async (request, reply) => {
+    // Check for existing variant cookie
+    let variant = request.cookies['ab-variant'];
 
-  // Assign variant if not set (50/50 split)
-  if (!variant) {
-    variant = Math.random() < 0.5 ? 'a' : 'b';
+    // Assign variant if not set (50/50 split)
+    if (!variant) {
+      variant = Math.random() < 0.5 ? 'a' : 'b';
 
-    reply.setCookie('ab-variant', variant, {
-      maxAge: 30 * 24 * 60 * 60, // 30 days
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: 'auto', // sets Secure when over HTTPS
-    });
-  }
+      reply.setCookie('ab-variant', variant, {
+        maxAge: 30 * 24 * 60 * 60, // 30 days
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: 'auto', // sets Secure when over HTTPS
+      });
+    }
 
-  // Route based on variant
-  if (variant === 'b') {
-    request.setActiveSSRApp('variant-b');
-  }
-  // Falls back to '__default__' for variant A
-});
+    // Route based on variant
+    if (variant === 'b') {
+      request.setActiveSSRApp('variant-b');
+    }
+    // Falls back to '__default__' for variant A
+  });
+};
 ```
 
 **Note**: This approach uses cookies to maintain consistent variant assignment across requests. The cookie settings align with [recommended patterns](./built-in-plugins/cookies.md#recommended-patterns) for first-party session cookies.
+
+### Gating Handlers on the Active App Bundle
+
+Routing selects a bundle. It does not scope anything else. Page data handlers, API route handlers, plugins, and the `APIResponseHelpers` class are registered on the server, the same way middleware is, so a handler written for one bundle answers on every bundle unless you say otherwise. Tailoring behavior per bundle means branching on `request.activeSSRApp` inside the handler or the helpers class. The two examples below are the two shapes that takes.
+
+#### Checked Bundle Keys
+
+`request.activeSSRApp` is a plain `string`, so a comparison against a bundle key is not checked for you. A typo compiles, runs, and never matches, which stops the gate working without saying so. Which way it breaks depends on how you wrote it. In the form below the check is true on every bundle, so the route 404s everywhere including the one it was meant to serve. Written the other way round, as `=== 'app-shelf'`, the same typo never fires and the handler answers on every bundle:
+
+```ts
+// Typo. Compiles, runs, gates nothing.
+if (request.activeSSRApp !== 'app-shelf') {
+  return request.trigger404();
+}
+```
+
+Two ways to make that a compile error. Neither changes anything about the server.
+
+**A local union, compared with `satisfies`.** Nothing imported, nothing declared globally, and it stays inside one file:
+
+```ts
+type Bundle = 'marketing' | 'app-shell';
+
+if (request.activeSSRApp !== ('app-shell' satisfies Bundle)) {
+  return request.trigger404();
+}
+```
+
+**`defineAppBundles()`, exported from `unirend/server`.** The same idea with three gaps filled: it takes an array for a handler shared by several bundles, it applies the check to the key you pass to `registerBuiltApp()` / `registerHMRApp()`, and the comparison sites do not each have to remember `satisfies`:
+
+```ts
+// app-bundles/bundles.ts
+import { defineAppBundles } from 'unirend/server';
+
+export const bundles = defineAppBundles('marketing', 'app-shell');
+```
+
+```ts
+// anywhere in that app
+import { bundles } from './app-bundles/bundles';
+
+// One bundle
+if (!bundles.is(request, 'app-shell')) {
+  return request.trigger404();
+}
+
+// Or several
+if (!bundles.is(request, ['marketing', 'app-shell'])) {
+  return request.trigger404();
+}
+
+// And at registration, which otherwise takes an unchecked string
+server.registerBuiltApp(bundles.key('marketing'), './build-marketing');
+```
+
+Pick whichever fits. The local union costs nothing and is enough for a single gate in a single file. The helper earns its import once you have more than a couple of gates, an array check, or a registration call you want covered.
+
+Once more than one bundle needs its own copy, title, or configuration, `bundles.match()` says it in one expression instead of a chain of `is()` calls:
+
+```ts
+const brand = bundles.match(
+  request,
+  { marketing: 'Example Co', 'app-shell': 'Example Workspace' },
+  'Example',
+);
+```
+
+List only the bundles that differ, and a typo in a case key fails to compile the same way it does in `is()`. The result keeps its literal type, so `brand` above is `'Example Co' | 'Example Workspace' | 'Example'` rather than `string`.
+
+The fallback is required, and it is not there for convenience. `request.activeSSRApp` is a plain `string`, `'__default__'` is always reachable, and a list built from configuration widens the key union to `string`, so an exhaustive record is never provable and there is always a value this has to return. In practice the fallback is where the server's own bundle lands, since anything not listed goes there.
+
+Details worth knowing about the helper:
+
+- `bundles.keys` is the declared list in order, handy for registering in a loop or for an error message that has to name what was expected.
+- `is()` is a type predicate, so a passing check narrows `request.activeSSRApp` to what was checked for. Useful when the code after the gate branches on the bundle again.
+- `'__default__'` is accepted by `is()` and as a `match()` case, since the server's own bundle is selectable, and rejected by `key()`, since a register call throws on it. As a `match()` case it needs a computed key (`{ ['__default__']: … }`) under a `naming-convention` lint rule of the kind the starter templates ship, which rejects it as a plain property name. Usually the fallback covers that bundle and the case is unnecessary.
+- `match()` throws if a case names a bundle that was never declared, which is the check that still holds once the key union has widened to `string`. Without it a typo'd case would take the fallback forever without saying anything.
+- The declaration is refused at startup for anything the server would refuse or rewrite at registration: an empty or whitespace-only key, surrounding whitespace, a path separator, the reserved key, or a duplicate. A declaration that type-checks but could never match is worse than no declaration.
+- `key()` checks at runtime as well as in the types, because the types can stop being a check. `defineAppBundles(...names)` spread from a `string[]` widens the key union to `string`, and then every literal type-checks.
+- It is an ordinary exported value, not a global type declaration, so two apps in one repo keep their own lists. Typing `activeSSRApp` itself would mean augmenting Fastify's `FastifyRequest`, which is global: one list per TypeScript program, shared by everything compiled together.
+
+#### Example 1: Gating a Handler on the Active App Bundle
+
+A handler that belongs to one bundle declines the others by returning `request.trigger404()`, so the server answers exactly as if the handler had never been registered, custom `notFoundHandler` and custom helpers class included. Call it first, before touching the reply and before any expensive work. See [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path) for the full behavior.
+
+```ts
+import { bundles } from './app-bundles/bundles';
+
+server.pageDataHandler.register('dashboard', async (request, reply, params) => {
+  if (!bundles.is(request, 'app-shell')) {
+    return request.trigger404();
+  }
+
+  return params.APIResponseHelpers.createPageSuccessResponse({
+    request,
+    data: await loadDashboard(request),
+    pageMetadata: { title: 'Dashboard', description: 'Your workspace' },
+  });
+});
+```
+
+The same shape works for an API route handler:
+
+```ts
+server.api.get('billing/summary', async (request, reply, params) => {
+  if (!bundles.is(request, 'app-shell')) {
+    return request.trigger404();
+  }
+
+  return params.APIResponseHelpers.createAPISuccessResponse({
+    request,
+    data: await loadBillingSummary(request),
+    statusCode: 200,
+  });
+});
+```
+
+#### Example 2: Per-Bundle Response Helpers
+
+There is one `APIResponseHelpers` class per server and no way to register a different one per bundle. The class receives the `request` on every creator, though, so branching on the active bundle inside it gives each bundle its own titles and error copy. Because the not-found path runs through the configured class, and `trigger404()` reuses that path, a triggered 404 picks this up with no hook of its own:
+
+```ts
+import {
+  APIResponseHelpers,
+  type BaseMeta,
+  type PageErrorResponse,
+} from 'unirend/api-envelope';
+import { serveSSRBuilt } from 'unirend/server';
+import { bundles } from './app-bundles/bundles';
+
+class AppResponseHelpers extends APIResponseHelpers {
+  public static override createPageErrorResponse<M extends BaseMeta = BaseMeta>(
+    params: Parameters<typeof APIResponseHelpers.createPageErrorResponse<M>>[0],
+  ): PageErrorResponse<M> {
+    const brand = bundles.match(
+      params.request,
+      { marketing: 'Example Co', 'app-shell': 'Example Workspace' },
+      'Example',
+    );
+
+    return super.createPageErrorResponse<M>({
+      ...params,
+      pageMetadata: {
+        ...params.pageMetadata,
+        title: `${params.pageMetadata.title} | ${brand}`,
+      },
+    });
+  }
+}
+
+const server = serveSSRBuilt('./build-main', {
+  APIResponseHelpersClass: AppResponseHelpers,
+});
+```
+
+Two things to keep in mind. An override has to keep the base method's own `<M extends BaseMeta>` generic, or it stops being assignable and the option rejects it. And `is()` and `match()` both throw when the request has no active bundle at all, which is what an `APIServer` request looks like, so a helpers class shared between an SSR server and a standalone API server should read `request.activeSSRApp` defensively rather than go through the helper.
+
+Where the line is:
+
+> Differing **by app bundle** is fine. The active bundle is already determined by the host the caller chose, so a marketing visitor seeing marketing copy reveals nothing they did not already know. What must never differ is **registered vs. unregistered within one bundle**, which is the property `trigger404()` exists to protect. A hand-built 404 envelope returned from the handler breaks it, because it is distinguishable from the envelope a genuine miss produces on the same bundle.
 
 ### Important Notes
 
 #### Mode Enforcement
 
-- Production servers (via `serveSSRBuilt`) can only register production apps with `registerBuiltApp()`
-- Development servers (via `serveSSRWithHMR`) can only register development apps with `registerHMRApp()`
+- Production servers (via `serveSSRBuilt`) can only register production app bundles with `registerBuiltApp()`
+- Development servers (via `serveSSRWithHMR`) can only register development app bundles with `registerHMRApp()`
 - This prevents mode mixing and simplifies deployment
 
 #### Shared Resources
 
-These resources are shared across all apps:
+These resources are shared across all app bundles:
 
-- **API handlers**: All `pageDataHandler.register()` and custom API routes are shared across apps. To organize handlers for multiple apps, use the [Multi-Project Pattern](#page-data-loader-handlers-and-versioning) with namespaced page types (e.g., `marketing/home`, `app/dashboard`).
-- **API error handling**: `APIHandling` (custom error/not-found handlers) is shared across all apps. These are server-level handlers, not per-app configuration.
-- **Plugins**: Plugins registered via `plugins` option apply to all apps
-- **Cookie policy**: Cookie forwarding rules (`cookieForwarding`) apply to all apps. **Important**: Apps should be on the same base domain (e.g., `example.com`, `www.example.com`, `app.example.com`, `marketing.example.com`) to share cookies safely. For cross-domain apps (e.g., `myapp.com` and `partner.com`), use separate server instances.
-- **WebSockets**: WebSocket handlers are shared across apps
+- **API handlers**: All `pageDataHandler.register()` and custom API routes are shared across bundles. To organize handlers for several bundles, use the [Multi-Project Pattern](#page-data-loader-handlers-and-versioning) with namespaced page types (e.g., `marketing/home`, `app/dashboard`), and [gate each handler](#gating-handlers-on-the-active-app-bundle) on the active bundle when it should answer for only one of them.
+- **API error handling**: `APIHandling` (custom error/not-found handlers) is shared across all bundles. These are server-level handlers, not per-bundle configuration.
+- **Response helpers**: `APIResponseHelpersClass` is one class per server. It receives the request, so it can [branch on the active bundle](#example-2-per-bundle-response-helpers) for per-bundle titles and error copy.
+- **Plugins**: Plugins registered via `plugins` option apply to all bundles
+- **Cookie policy**: Cookie forwarding rules (`cookieForwarding`) apply to all bundles. **Important**: Bundles should be on the same base domain (e.g., `example.com`, `www.example.com`, `app.example.com`, `marketing.example.com`) to share cookies safely. For cross-domain apps (e.g., `myapp.com` and `partner.com`), use separate server instances.
+- **WebSockets**: WebSocket handlers are shared across bundles
 
-#### Per-App Resources
+#### Per-Bundle Resources
 
-These resources are configured independently for each app:
+These resources are configured independently for each app bundle:
 
-- **Error pages**: `get500ErrorPage` is per-app. Each app uses its own custom error page if specified, otherwise falls back to the framework's built-in default error page
-- **CDN configuration**: `CDNBaseURL` is per-app. Each app can use its own CDN base URL for asset delivery
-- **Static content**: Each app serves its own static assets from its `buildDir` and `clientFolderName`, or provide a custom `staticContentRouter` configuration (production only)
-- **HTML template**: Each app uses its own HTML template from its build directory
-- **Public app config**: Each app can have its own `publicAppConfig` injected as `window.__PUBLIC_APP_CONFIG__`
+- **Error pages**: `get500ErrorPage` is per-bundle. Each bundle uses its own custom error page if specified, otherwise falls back to the framework's built-in default error page
+- **CDN configuration**: `CDNBaseURL` is per-bundle. Each bundle can use its own CDN base URL for asset delivery
+- **Static content**: Each bundle serves its own static assets from its `buildDir` and `clientFolderName`, or provide a custom `staticContentRouter` configuration (production only)
+- **HTML template**: Each bundle uses its own HTML template from its build directory
+- **Public app config**: Each bundle can have its own `publicAppConfig` injected as `window.__PUBLIC_APP_CONFIG__`
 
 #### Resource Considerations
 
 - Each Vite instance (dev mode) uses ~50-100MB of memory
 - Each static content cache (prod mode) uses ~50MB of memory
-- **HMR transport (dev mode)**: Each app's Vite instance shares the main HTTP server for its HMR WebSocket rather than opening a separate port. Apps are disambiguated by a unique path (`/__hmr/<appKey>`), and the browser connects back to the page's own port automatically. No separate HMR ports are allocated, so there is nothing to configure. When `enableWebSockets` is on, Vite HMR and your WebSocket handlers coexist on the same port: HMR upgrades (subprotocol `vite-hmr`/`vite-ping`) go to Vite, all other upgrades go to your handlers.
-- **Recommendation**: Limit to 3-5 apps per server instance for optimal performance
+- **HMR transport (dev mode)**: Each bundle's Vite instance shares the main HTTP server for its HMR WebSocket rather than opening a separate port. Bundles are disambiguated by a unique path (`/__hmr/<appKey>`), and the browser connects back to the page's own port automatically. No separate HMR ports are allocated, so there is nothing to configure. When `enableWebSockets` is on, Vite HMR and your WebSocket handlers coexist on the same port: HMR upgrades (subprotocol `vite-hmr`/`vite-ping`) go to Vite, all other upgrades go to your handlers.
+- **Recommendation**: Limit to 3-5 app bundles per server instance for optimal performance
 
 #### Error Page Patterns
 
-The starter template ships an app-agnostic `get500ErrorPage` that reads the theme preference from the request and stays neutral, so it works as-is for any app. When you run multiple apps, two patterns are worth knowing.
+The starter template ships a bundle-agnostic `get500ErrorPage` that reads the theme preference from the request and stays neutral, so it works as-is for any bundle. When you run several app bundles, two patterns are worth knowing.
 
-**Detecting the active app inside the handler.** The handler receives the Fastify request, and the request is fully decorated by the time an error is handled. You can read `request.activeSSRApp` to find out which app is being served and branch on it, without needing any extra wiring:
+**Detecting the active bundle inside the handler.** The handler receives the Fastify request, and the request is fully decorated by the time an error is handled. You can read `request.activeSSRApp` to find out which bundle is being served and branch on it, without needing any extra wiring:
 
 ```typescript
 function get500ErrorPage(request, error, isDevelopment) {
@@ -2083,11 +2371,11 @@ function get500ErrorPage(request, error, isDevelopment) {
 }
 ```
 
-Keep in mind that `activeSSRApp` reflects wherever the request was when it failed. If something crashed before your middleware called `request.setActiveSSRApp(appKey)`, the request is still on `__default__`, so treat that as the "unknown app" case rather than assuming your app was selected.
+Keep in mind that `activeSSRApp` reflects wherever the request was when it failed. If something crashed before your middleware called `request.setActiveSSRApp(appKey)`, the request is still on `__default__`, so treat that as the "unknown bundle" case rather than assuming your bundle was selected.
 
-**Reusing one `get500ErrorPage` function across apps with an override argument.** If you'd rather pass the app identity in explicitly instead of reading it off the request, give your shared function an optional argument and pass a different label wherever each app is set up. This keeps a single source of truth for the markup while letting each app brand its own page, and the label removes the need to branch on `request.activeSSRApp` inside the handler. It does not change which handler runs, though: the error handler still selects the app from `request.activeSSRApp`, so a failure before your middleware calls `setActiveSSRApp` invokes the base config's handler, not your app's wrapper. Keep the base config's page neutral for exactly that case.
+**Reusing one `get500ErrorPage` function across bundles with an override argument.** If you'd rather pass the bundle identity in explicitly instead of reading it off the request, give your shared function an optional argument and pass a different label wherever each bundle is set up. This keeps a single source of truth for the markup while letting each bundle brand its own page, and the label removes the need to branch on `request.activeSSRApp` inside the handler. It does not change which handler runs, though: the error handler still selects the bundle from `request.activeSSRApp`, so a failure before your middleware calls `setActiveSSRApp` invokes the base config's handler, not your bundle's wrapper. Keep the base config's page neutral for exactly that case.
 
-The base app takes the option through its serve function (`serveSSRBuilt` or `serveSSRWithHMR`), and each additional app takes it through the matching register call (`registerBuiltApp` or `registerHMRApp`):
+The server's own bundle takes the option through its serve function (`serveSSRBuilt` or `serveSSRWithHMR`), and each additional bundle takes it through the matching register call (`registerBuiltApp` or `registerHMRApp`):
 
 ```typescript
 // Shared function with an optional label override
@@ -2096,26 +2384,26 @@ function get500ErrorPage(request, error, isDevelopment, appLabel?: string) {
   // ...brand the page with `label`
 }
 
-// Base app: pass the label through the serve function's options
+// The server's own bundle: pass the label through the serve function's options
 const server = serveSSRBuilt('./build', {
   get500ErrorPage: (req, err, dev) => get500ErrorPage(req, err, dev, 'Main'),
 });
 
-// Additional app: pass its own label through the register call
+// Additional bundle: pass its own label through the register call
 server.registerBuiltApp('admin', './build-admin', {
   get500ErrorPage: (req, err, dev) => get500ErrorPage(req, err, dev, 'Admin'),
 });
 ```
 
-**The default app as a catch-all.** Both single-app and multi-app servers always have a `__default__` app built from the base config you pass to `serveSSRWithHMR` or the production serve function. That makes the base config's `get500ErrorPage` a natural place for a neutral fallback page that covers early failures and any request that never selected an app. Register branded handlers on the individual apps, and let `__default__` stay generic.
+**The default bundle as a catch-all.** Every SSR server, whether or not it registers more, has a `__default__` bundle built from the base config you pass to `serveSSRWithHMR` or the production serve function. That makes the base config's `get500ErrorPage` a natural place for a neutral fallback page that covers early failures and any request that never selected a bundle. Register branded handlers on the individual bundles, and let `__default__` stay generic.
 
-**Previewing per-app error pages while testing.** With more than one app it's awkward to trigger each app's branded 500 through normal routing. A simple approach is to have your `setActiveSSRApp` middleware honor an override query in development, for example `?__app=admin`, so you can force the active app for a request and see its error page. Gate this behind the same development-only flag as the demo error routes (the starter template exposes those through `ENABLE_TEST_ROUTES` in `consts.ts`) so it never affects production traffic.
+**Previewing per-bundle error pages while testing.** With more than one bundle it's awkward to trigger each bundle's branded 500 through normal routing. A simple approach is to have your `setActiveSSRApp` middleware honor an override query in development, for example `?__app=admin`, so you can force the active bundle for a request and see its error page. Gate this behind the same development-only flag as the demo error routes (the starter template exposes those through `ENABLE_TEST_ROUTES` in `consts.ts`) so it never affects production traffic.
 
 #### Validation
 
-- Apps must be registered **before** calling `listen()`
-- Attempting to access a non-existent app key throws an error with available apps listed
-- App keys cannot contain path separators (`/` or `\`)
+- App bundles must be registered **before** calling `listen()`
+- Attempting to access a non-existent bundle key throws an error with the available bundles listed
+- Bundle keys cannot contain path separators (`/` or `\`)
 
 ## Standalone API (APIServer)
 
@@ -2125,7 +2413,7 @@ Use it when you don't need server-side React rendering. Common use cases:
 
 - **JSON API server**: AJAX/fetch endpoints with versioned routes and envelope responses, separately from your SSR server
 - **Page data server**: Host page data loader handlers separately from your SSR server
-- **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs JSON responses)
+- **Mixed API + web server**: Serve both JSON APIs and static HTML/assets without React (use split error handlers for HTML vs. JSON responses)
 - **Generic HTTP server**: Use as a general-purpose HTTP server (similar to Fastify/Express) with Unirend's plugin system. Set `apiEndpointPrefix: false` to disable API envelope handling and serve custom content via plugins
 
 ### Basic Usage
@@ -2447,7 +2735,7 @@ interface WebResponse {
 
 **Security Note**: When returning HTML with dynamic values (URLs, error messages, etc.), always escape them using `escapeHTML` from `unirend/utils` to prevent XSS attacks. React components automatically escape content, but raw HTML generation in error handlers requires manual escaping.
 
-**API vs Web Detection:**
+**API vs. Web Detection:**
 
 The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API requests. This includes versioned paths:
 
@@ -2460,6 +2748,28 @@ The server uses `apiEndpoints.apiEndpointPrefix` (default `/api`) to detect API 
 When `apiEndpointPrefix: "/"`, every path is treated as API for request classification. API routes mount at the root, page data mounts at `/page_data/...` (or `/v{n}/page_data/...` when versioned), and default not-found/error responses are envelopes. Use `apiEndpointPrefix: false` only when you want plain web behavior instead of API envelopes.
 
 This means all your API endpoints (including versioned ones under `/api/v1/`, `/api/v2/`, etc.) are detected as API requests, while everything else is treated as web requests.
+
+### Declining a Request on an API Server
+
+`request.trigger404()` works identically on `APIServer`. A page data handler or an API route handler returns it to abandon the request into this server's not-found path, so the response is exactly what an unregistered route produces here, `notFoundHandler` and `APIResponseHelpersClass` included. Everything in [Abandoning a Request Into the Not-Found Path](#abandoning-a-request-into-the-not-found-path) applies unchanged: return the value, call it first, a forgotten `return` still 404s, an already-sent response cannot be taken back, and `reply.callNotFound()` is the equivalent inside a raw plugin route.
+
+The one difference is what you gate on. App bundles are an SSR concept, so `request.activeSSRApp` does not exist here and `defineAppBundles()` has nothing to compare against. Use the request's own transport context instead, typically the host or a header set by your edge:
+
+```ts
+const TENANT_HOSTS = new Set(['app.example.com', 'app.internal']);
+
+api.pageDataHandler.register('dashboard', async (request, reply, params) => {
+  if (!TENANT_HOSTS.has(request.hostname)) {
+    return request.trigger404();
+  }
+
+  // ...
+});
+```
+
+Gate on something the caller cannot set at will. `request.hostname` comes from the `Host` header, which is fine behind a proxy that validates it (see the [domainValidation](./built-in-plugins/domainValidation.md) plugin) and is worth nothing if anything can reach the server directly with an arbitrary `Host`.
+
+Plain web mode (`apiEndpoints.apiEndpointPrefix: false`, which is what `servePlain()`, `StaticWebServer`, and `RedirectServer` run in) has no envelope handlers at all, so there is nowhere to call this from. Use `reply.callNotFound()` in your plugin routes there.
 
 ## Graceful Shutdown
 

@@ -30,7 +30,7 @@ The `domainValidation` plugin provides comprehensive domain security and normali
 - **WWW prefix handling**: Add or remove WWW prefix with smart apex domain detection (no changes to subdomains)
 - **Punycode normalization**: Handles international domains (IDN) safely with punycode conversion
 - **Proxy-aware**: Uses the host and protocol Fastify resolves from `fastifyOptions.trustProxy`, so proxy trust is configured once for the whole server
-- **API endpoint detection**: Different error handling for API vs web requests
+- **API endpoint detection**: Different error handling for API vs. web requests
 - **Single redirect**: Combines multiple redirect conditions to avoid redirect chains
 - **Port preservation**: Configurable port handling for development and custom setups
 - **Development-friendly**: Automatically skips validation for localhost, 127.0.0.1, ::1, and development mode

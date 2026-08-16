@@ -235,7 +235,7 @@ function ThemeToggle() {
 
 Unirend provides a key-value store for managing per-request context data that can be populated on the server and mutated on the client. This is separate from `publicAppConfig`, which is intended to be read-only.
 
-**Request Context vs Public App Config:**
+**Request Context vs. Public App Config:**
 
 - **Request Context**: Per-page/per-request mutable key-value store (e.g., user session data, theme preferences, page-specific state). In separated SSR/API deployments, SSR data loaders can bridge it to trusted API page data requests and merge returned values back.
 - **Public App Config**: Global, read-only configuration shared across all pages (e.g., API URLs, feature flags, build info). Each server clones its configured source onto `request.publicAppConfig`. In separated SSR/API deployments, it is not bridged or merged between servers.
@@ -1187,7 +1187,7 @@ import type { UnirendRenderMode, RequestContextManager } from 'unirend/client';
 2. **Use request context for state**: Use `useRequestContext()` and `useRequestContextValue()` for per-request state management
 3. **Avoid overusing**: Don't check render mode for every component - only when behavior needs to differ
 4. **Type safety**: TypeScript will help you use the Request object correctly
-5. **SSR vs SSG**: Use `useIsServer()` to detect true SSR server vs SSG build-time rendering
+5. **SSR vs. SSG**: Use `useIsServer()` to detect true SSR server vs. SSG build-time rendering
 6. **Avoid hydration mismatches**: Don't directly render context values that differ between server and client (like `renderMode`, `isDevelopment`) - use them for logic/behavior control, not for displayed content
 7. **Debugging values only**: Most context values are primarily useful for debugging and controlling behavior - avoid displaying them directly in your UI
 8. **Public app config best practices**:

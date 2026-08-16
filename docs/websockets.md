@@ -5,7 +5,7 @@
 - [Overview](#overview)
 - [Enable WebSockets](#enable-websockets)
 - [Register Handlers](#register-handlers)
-  - [preValidate: Upgrade vs Reject](#prevalidate-upgrade-vs-reject)
+  - [preValidate: Upgrade vs. Reject](#prevalidate-upgrade-vs-reject)
   - [Handler Signature](#handler-signature)
   - [Socket Events](#socket-events)
 - [Options](#options)
@@ -114,7 +114,7 @@ server.registerWebSocketHandler({
 });
 ```
 
-### preValidate: Upgrade vs Reject
+### preValidate: Upgrade vs. Reject
 
 `preValidate(request, params)` receives:
 

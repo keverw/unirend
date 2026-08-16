@@ -1,7 +1,13 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { isValid as isValidULID } from 'ulid';
 import fastify from 'fastify';
 import type { FastifyReply, FastifyRequest, FastifyInstance } from 'fastify';
+import type {
+  NotFoundRequest,
+  HTTPSOptions,
+  PluginAPIRouteShortcuts,
+  PluginPageDataHandlerShortcuts,
+} from '../types';
 import {
   createControlledReply,
   classifyRequest,
@@ -19,17 +25,17 @@ import {
   registerRequestIDDecoration,
   registerClosingResponseHook,
   resolveClosingResponse,
+  attachHandlerResponseToError,
+  describeHandlerResult,
+  resolveAPINotFoundResponse,
+  derivePageDataNotFoundContext,
   sendClosingPayload,
   isSplitHandler,
   prepareWebResponse,
   computeDomainInfo,
 } from './server-utils';
-import type {
-  HTTPSOptions,
-  PluginAPIRouteShortcuts,
-  PluginPageDataHandlerShortcuts,
-} from '../types';
 import { APIResponseHelpers } from '../../api-envelope';
+import { overrideDevMode } from 'lifecycleion/dev-mode';
 
 // cspell:ignore regs apix datax falsey
 
@@ -2080,6 +2086,474 @@ describe('resolveClosingResponse', () => {
     expect(state.statusCode).toBe(503);
     expect(state.headers['cache-control']).toBe('no-store');
     expect(state.contentType).toBe('text/html');
+  });
+});
+
+describe('attachHandlerResponseToError', () => {
+  // Every site that reports an offending handler return value goes through
+  // here: the API route registry, both page data registry paths, the WebSocket
+  // preValidation check, and the trigger-404 missing-return log. The dev split
+  // is asserted once, here, so it cannot drift between them.
+
+  afterEach(() => {
+    // Every other test in the process expects production mode.
+    overrideDevMode(false);
+  });
+
+  it('withholds the offending value in production and keeps the type', () => {
+    overrideDevMode(false);
+
+    const error = new Error('handler bug');
+
+    attachHandlerResponseToError(error, {
+      apiKey: 'sk-live-SUPER-SECRET',
+      password: 'hunter2',
+    });
+
+    expect(error).not.toHaveProperty('handlerResponse');
+    expect(
+      (error as unknown as { handlerResponseType: string }).handlerResponseType,
+    ).toBe('object');
+
+    // These errors are serialized wholesale into the configured logger, which
+    // commonly forwards to a third-party sink, so nothing of the value may
+    // survive anywhere on the error.
+    expect(JSON.stringify({ ...error })).not.toContain('SUPER-SECRET');
+  });
+
+  it('includes the offending value in development', () => {
+    overrideDevMode(true);
+
+    const error = new Error('handler bug');
+    const handlerResult = { apiKey: 'sk-live-SUPER-SECRET' };
+
+    attachHandlerResponseToError(error, handlerResult);
+
+    expect(
+      (error as unknown as { handlerResponse: unknown }).handlerResponse,
+    ).toBe(handlerResult);
+  });
+
+  it('names null and array distinctly, which typeof collapses', () => {
+    expect(describeHandlerResult(null)).toBe('null');
+    expect(describeHandlerResult([1, 2])).toBe('array');
+    expect(describeHandlerResult({})).toBe('object');
+    expect(describeHandlerResult(undefined)).toBe('undefined');
+    expect(describeHandlerResult('nope')).toBe('string');
+    expect(describeHandlerResult(false)).toBe('boolean');
+  });
+});
+
+describe('derivePageDataNotFoundContext', () => {
+  const requestFor = (url: string, body: unknown): FastifyRequest =>
+    ({ url, body }) as unknown as FastifyRequest;
+
+  const loaderBody = {
+    route_params: { id: '7' },
+    query_params: { q: 'x' },
+    request_path: '/account/7',
+    original_url: '/account/7?q=x',
+  };
+
+  it('reads the page type after the prefix and version', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('account');
+    expect(context?.originalURL).toBe('/account/7?q=x');
+    expect(context?.routeParams).toEqual({ id: '7' });
+  });
+
+  it('keeps a namespaced page type whole', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/marketing/home', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('marketing/home');
+  });
+
+  it('decodes a percent-encoded page type', () => {
+    // Fastify decodes `:pageType` for a registered route and the SSR
+    // short-circuit passes React Router's decoded value, so leaving this
+    // encoded would make an HTTP miss the only path reporting `foo%20bar`
+    // where every other path reports `foo bar`.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/foo%20bar', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('foo bar');
+  });
+
+  it('keeps a malformed page type rather than throwing', () => {
+    // A lone `%` makes decodeURIComponent throw. The URL is whatever a caller
+    // sent, so a malformed one has to answer like any other unregistered page
+    // type rather than failing into a different response.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/100%', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('100%');
+  });
+
+  it('is not fooled by a prefix containing the endpoint word', () => {
+    // Searching for the first `/page_data/` would report
+    // `service/v1/page_data/home` here, and the short-circuit would then
+    // disagree with the HTTP path about which page type was missing.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/page_data/service/v1/page_data/home', loaderBody),
+      'page_data',
+      '/page_data/service',
+    );
+
+    expect(context?.pageType).toBe('home');
+  });
+
+  it('returns nothing without the loader body', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {}),
+      'page_data',
+      '/api',
+    );
+
+    expect(context).toBeUndefined();
+  });
+
+  it('handles a root API prefix', () => {
+    // `normalizeAPIPrefix` keeps `/` as-is, so slicing it would take the URL's
+    // only leading slash and nothing below would match.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/v1/page_data/account', loaderBody),
+      'page_data',
+      '/',
+    );
+
+    expect(context?.pageType).toBe('account');
+  });
+
+  it('ignores route and query params that are not plain objects', () => {
+    // An unregistered page type never reaches the registered route's body
+    // validation, so a caller can send anything here. A cast would hand a
+    // handler a value the public type says is impossible.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {
+        ...loaderBody,
+        route_params: 'not-an-object',
+        query_params: ['also', 'not'],
+      }),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.routeParams).toEqual({});
+    expect(context?.queryParams).toEqual({});
+    expect(context?.originalURL).toBe('/account/7?q=x');
+  });
+
+  it('passes element values through, as the registered route does', () => {
+    // Container only, on purpose. A registered page data route checks these to
+    // the same depth and leaves values alone, so filtering here would make an
+    // HTTP miss disagree with the short-circuit, which passes the route's own
+    // params through. The type is as accurate as it is for a registered
+    // handler, no more.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {
+        ...loaderBody,
+        route_params: { id: 123 },
+      }),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.routeParams).toEqual({ id: 123 } as never);
+  });
+
+  it('returns nothing when the URL is not under the prefix', () => {
+    const context = derivePageDataNotFoundContext(
+      requestFor('/elsewhere/page_data/account', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context).toBeUndefined();
+  });
+});
+
+describe('resolveAPINotFoundResponse', () => {
+  const createReply = () => {
+    const state = {
+      statusCode: 0,
+      headers: {} as Record<string, string>,
+    };
+
+    const reply = {
+      code: (statusCode: number) => {
+        state.statusCode = statusCode;
+        return reply;
+      },
+      header: (name: string, value: string) => {
+        state.headers[name.toLowerCase()] = value;
+        return reply;
+      },
+    } as unknown as FastifyReply;
+
+    return { reply, state };
+  };
+
+  const createRequest = (url: string) =>
+    ({
+      url,
+      method: 'GET',
+      log: {
+        error: mock(),
+      },
+    }) as unknown as FastifyRequest;
+
+  const baseConfig = {
+    serverLabel: 'TestServer',
+    HelpersClass: APIResponseHelpers,
+    apiPrefix: '/api',
+    pageDataEndpoint: 'page_data',
+  };
+
+  it('returns the default envelope without a reply on the internal path', async () => {
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request,
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+        message: 'Resource Not Found',
+      },
+    });
+  });
+
+  it('passes isPageData and the helpers class to the function form', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/page_data/dashboard');
+    const handler = mock(
+      (
+        handlerRequest: NotFoundRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) =>
+        APIResponseHelpers.createPageErrorResponse({
+          request: handlerRequest,
+          statusCode: 404,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Custom page 404',
+          pageMetadata: { title: 'Missing', description: 'Custom' },
+        }),
+    );
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler,
+      request,
+      reply,
+    });
+
+    expect(handler.mock.calls[0][1]).toBe(true);
+    expect(handler.mock.calls[0][2]).toEqual({
+      APIResponseHelpers,
+    });
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'custom_not_found',
+        message: 'Custom page 404',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('honors a custom status code from the handler', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: (handlerRequest: NotFoundRequest) =>
+        APIResponseHelpers.createAPIErrorResponse({
+          request: handlerRequest,
+          statusCode: 451,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Gone for legal reasons',
+        }),
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({ status_code: 451 });
+    expect(state.statusCode).toBe(451);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('uses a split handler api entry', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: {
+        api: (handlerRequest: NotFoundRequest) =>
+          APIResponseHelpers.createAPIErrorResponse({
+            request: handlerRequest,
+            statusCode: 404,
+            errorCode: 'split_api_not_found',
+            errorMessage: 'Split API 404',
+          }),
+      },
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({
+      error: { code: 'split_api_not_found' },
+    });
+    expect(state.statusCode).toBe(404);
+  });
+
+  it('falls back to the default envelope for a split handler carrying only web', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+    const webHandler = mock(() => ({
+      contentType: 'text' as const,
+      content: 'Web 404',
+    }));
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: { web: webHandler },
+      request,
+      reply,
+    });
+
+    expect(webHandler).not.toHaveBeenCalled();
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+        message: 'Resource Not Found',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(state.headers['cache-control']).toBe('no-store');
+  });
+
+  it('builds the page envelope when the classification override forces it', async () => {
+    // The SSR internal short-circuit runs on the page request, so the URL here
+    // is the web route. Deriving from it would produce an API envelope where
+    // the HTTP fallback for the same page type produces a page one.
+    const request = createRequest('/dashboard');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request,
+      classification: { isAPI: true, isPageData: true },
+    });
+
+    expect(payload).toMatchObject({
+      type: 'page',
+      status_code: 404,
+      meta: {
+        page: {
+          title: 'Not Found',
+          description: 'The requested page could not be found',
+        },
+      },
+      error: { code: 'not_found', message: 'Page Not Found' },
+    });
+  });
+
+  it('passes the overridden isPageData to a custom handler', async () => {
+    const request = createRequest('/dashboard');
+    const handler = mock(
+      (
+        handlerRequest: NotFoundRequest,
+        _isPageData: boolean | undefined,
+        _params: unknown,
+      ) =>
+        APIResponseHelpers.createPageErrorResponse({
+          request: handlerRequest,
+          statusCode: 404,
+          errorCode: 'custom_not_found',
+          errorMessage: 'Custom page 404',
+          pageMetadata: { title: 'Missing', description: 'Custom' },
+        }),
+    );
+
+    await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler,
+      request,
+      classification: { isAPI: true, isPageData: true },
+    });
+
+    // Without the override this URL classifies as neither, so the handler would
+    // not have been called at all.
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][1]).toBe(true);
+  });
+
+  it('derives the classification from the URL when no override is given', async () => {
+    // The same URL, without the override: the API branch is what the resolver
+    // reaches, which is exactly why the internal path needs to force it.
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      request: createRequest('/dashboard'),
+    });
+
+    expect(payload).toMatchObject({
+      type: 'api',
+      error: { message: 'Resource Not Found' },
+    });
+  });
+
+  it('logs handler failures and falls back to the default envelope', async () => {
+    const { reply, state } = createReply();
+    const request = createRequest('/api/v1/missing');
+
+    const payload = await resolveAPINotFoundResponse({
+      ...baseConfig,
+      handler: () => {
+        throw new Error('handler failed');
+      },
+      request,
+      reply,
+    });
+
+    expect(payload).toMatchObject({
+      status_code: 404,
+      error: {
+        code: 'not_found',
+      },
+    });
+    expect(state.statusCode).toBe(404);
+    expect(
+      (request.log.error as ReturnType<typeof mock>).mock.calls[0],
+    ).toEqual([
+      {
+        err: expect.any(Error),
+        method: 'GET',
+        url: '/api/v1/missing',
+      },
+      '[TestServer] Custom not-found handler failed',
+    ]);
   });
 });
 

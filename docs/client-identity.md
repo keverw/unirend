@@ -3,7 +3,7 @@
 <!-- toc -->
 
 - [About](#about)
-- [connectionIP vs clientIP](#connectionip-vs-clientip)
+- [connectionIP vs. clientIP](#connectionip-vs-clientip)
 - [Configuration](#configuration)
 - [request.clientInfo](#requestclientinfo)
 - [Forwarded Headers (SSR)](#forwarded-headers-ssr)
@@ -26,7 +26,7 @@ Unirend resolves client identity on every server (SSR, API, Static, Redirect). I
 
 It is built in and **on by default**, configured via the `clientInfo` server option (or disabled with `clientInfo: false`).
 
-## connectionIP vs clientIP
+## connectionIP vs. clientIP
 
 These answer different questions and are both always present:
 

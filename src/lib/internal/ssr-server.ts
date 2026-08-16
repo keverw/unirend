@@ -47,7 +47,7 @@ import {
   normalizePageDataEndpoint,
   computeDomainInfo,
   createDefaultAPIErrorResponse,
-  createDefaultAPINotFoundResponse,
+  resolveAPINotFoundResponse,
   registerClosingResponseHook,
   createControlledReply,
   validateAndRegisterPlugin,
@@ -56,7 +56,12 @@ import {
   registerConnectionIPDecoration,
   registerRequestIDDecoration,
 } from './server-utils';
-import type { ClosingHandlerOption } from './server-utils';
+import type {
+  ClosingHandlerOption,
+  APINotFoundHandlerOption,
+  APINotFoundResolutionConfig,
+} from './server-utils';
+import { markTrigger404Requested } from './trigger-404';
 import { registerClientInfoResolution } from './client-info-resolution';
 import { generateDefault500ErrorPage } from './error-page-utils';
 // See comment in static-content-cache.ts — cross-entry import via unirend/utils.
@@ -805,6 +810,15 @@ export class SSRServer<
       this.fastifyInstance.decorateRequest('publicAppConfig', undefined);
       this.fastifyInstance.decorateRequest('CDNBaseURL', undefined);
 
+      // Abandon a request into the not-found path. Fastify puts function
+      // decorators on the Request prototype, so this costs nothing per request
+      // and carries no per-request state: the trigger state lives in the async
+      // context of the handler invocation that called it.
+      this.fastifyInstance.decorateRequest(
+        'trigger404',
+        markTrigger404Requested,
+      );
+
       // Decorate requests with APIResponseHelpersClass for file upload helpers
       this.fastifyInstance.decorateRequest(
         'APIResponseHelpersClass',
@@ -1050,6 +1064,11 @@ export class SSRServer<
         },
       );
 
+      // --- Setup Global Not-Found Handling ---
+      // Registered alongside the error handler and before any plugins, so a
+      // plugin route calling reply.callNotFound() delegates to it.
+      this.setupNotFoundHandler();
+
       // Register plugins if provided
       if (this.sharedOptions.plugins && this.sharedOptions.plugins.length > 0) {
         await this.registerPlugins();
@@ -1084,6 +1103,13 @@ export class SSRServer<
           this.pageDataHandlers,
         );
       } else {
+        // Install the not-found resolution on both registries before their
+        // routes exist, so request.trigger404() resolves through exactly the
+        // config a genuine miss resolves through.
+        const notFoundResolution = this.notFoundResolutionConfig();
+        this.pageDataHandlers.setNotFoundResolution(notFoundResolution);
+        this.apiRoutes.setNotFoundResolution(notFoundResolution);
+
         // API is enabled - register page data and API routes
         this.pageDataHandlers.registerRoutes(
           this.fastifyInstance,
@@ -1405,488 +1431,12 @@ export class SSRServer<
         }
       }
 
-      // This handler will catch all requests
+      // This handler will catch all GET requests. Everything else a route did
+      // not claim reaches the same place through setupNotFoundHandler().
       this.fastifyInstance.get(
         '*',
         async (request: FastifyRequest, reply: FastifyReply) => {
-          // Check if this is an API request that should return 404 JSON instead of SSR
-          // classifyRequest handles false prefix internally (returns isAPI: false)
-          const { isAPI } = classifyRequest(
-            request.url,
-            this.normalizedAPIPrefix,
-            this.normalizedPageDataEndpoint,
-          );
-
-          if (isAPI && this.normalizedAPIPrefix) {
-            // This is an API request that didn't match any route - return 404 JSON
-            return this.handleAPINotFound(request, reply);
-          }
-
-          // Continue with SSR handling for non-API requests
-          // Get active app based on request.activeSSRApp (defaults to '__default__')
-          const appKey = request.activeSSRApp || '__default__';
-          const appConfig = this.apps.get(appKey);
-
-          if (!appConfig) {
-            const availableApps = Array.from(this.apps.keys()).join(', ');
-            throw new Error(
-              `Active app "${appKey}" not found. Available apps: ${availableApps}`,
-            );
-          }
-
-          // Load and call the actual render function from the server entry
-          // Signature should be: (renderRequest: RenderRequest) => Promise<RenderResult>
-          let render: (renderRequest: RenderRequest) => Promise<RenderResult>;
-
-          let template: string;
-
-          // The CDN base URL in force for this request, resolved once.
-          //
-          // Needed before the render rather than only at it, because the
-          // template's CSP hashes depend on it: a template may write
-          // __CDN__INJECTION__POINT__ into an inline <style>, and injectContent
-          // resolves that per request, so the hash has to be taken against the
-          // same value. `request.CDNBaseURL` is populated before preHandler, so
-          // it is already settled here.
-          //
-          // `??` rather than `||` so an explicit empty-string override, which is
-          // how a hook disables the CDN for one request, is honored instead of
-          // falling through to the app-level default.
-          const requestCDNBaseURL = normalizeCDNBaseURL(
-            request.CDNBaseURL ??
-              ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined),
-          );
-
-          if (
-            this.serverMode === 'development' &&
-            'viteDevServer' in appConfig &&
-            appConfig.viteDevServer
-          ) {
-            // --- Development SSR ---
-            // Read template fresh per request in dev mode
-            const templateResult = await this.loadHTMLTemplate(appConfig);
-            template = templateResult.content;
-
-            // Apply Vite HTML transforms (injects HMR client, plugins)
-            template = await appConfig.viteDevServer.transformIndexHtml(
-              request.url,
-              template,
-            );
-
-            // Hash after Vite, not before. transformIndexHtml runs after
-            // processTemplate and adds inline content of its own, the React
-            // refresh preamble among it, so hashes taken earlier would be
-            // missing exactly the scripts that only exist in development.
-            //
-            // Guarded on the decoration rather than on a mode flag: it is
-            // absent unless securityHeaders is registered with a csp policy, so
-            // a dev server that is not using CSP pays nothing for this.
-            if (request.addCSPSources) {
-              request.addCSPSources(
-                resolveTemplateCSPHashes(
-                  // Still a template at this point, so injectContent has yet to
-                  // resolve the CDN placeholder in it and any inline block
-                  // carrying one has to be held back rather than hashed here.
-                  await collectTemplateCSPHashes(template, {
-                    cdnPlaceholderPending: true,
-                  }),
-                  requestCDNBaseURL,
-                ),
-              );
-            }
-
-            // Load server entry using Vite's SSR loader (from src)
-            const entryServer = await appConfig.viteDevServer.ssrLoadModule(
-              appConfig.sourcePaths.serverEntry,
-            );
-
-            if (
-              !entryServer.render ||
-              typeof entryServer.render !== 'function'
-            ) {
-              throw new Error(
-                "Server entry module must export a 'render' function",
-              );
-            }
-
-            // Type assertion: We've validated render exists and is a function
-            render = entryServer.render as (
-              renderRequest: RenderRequest,
-            ) => Promise<RenderResult>;
-          } else {
-            // --- Production SSR ---
-            // Use template and render function loaded at startup
-            // Both are loaded once at startup for performance and fail-fast validation
-            if (
-              !('cachedHTMLTemplate' in appConfig) ||
-              !appConfig.cachedHTMLTemplate
-            ) {
-              throw new Error(
-                `HTML template not loaded for app "${appKey}" in production mode`,
-              );
-            }
-
-            if (
-              !('cachedRenderFunction' in appConfig) ||
-              !appConfig.cachedRenderFunction
-            ) {
-              throw new Error(
-                `Render function not loaded for app "${appKey}" in production mode`,
-              );
-            }
-
-            template = appConfig.cachedHTMLTemplate;
-            render = appConfig.cachedRenderFunction;
-
-            // Hashed once at startup, so this is a lookup rather than work,
-            // except for any inline block carrying the CDN placeholder. Those
-            // could not be hashed then, since the value they resolve to is
-            // per request, so resolveTemplateCSPHashes settles them here. It
-            // returns the cached object untouched when there are none, which is
-            // the usual case.
-            if (request.addCSPSources && appConfig.cachedTemplateCSPHashes) {
-              request.addCSPSources(
-                resolveTemplateCSPHashes(
-                  appConfig.cachedTemplateCSPHashes,
-                  requestCDNBaseURL,
-                ),
-              );
-            }
-          }
-
-          // Create Fetch API Request object for React Router
-          // Create Request object with appropriate data
-          const fetchRequest = new Request(
-            `${request.protocol}://${request.hostname}${request.url}`,
-            {
-              method: request.method,
-              headers: (() => {
-                // Safely construct Headers from Fastify request headers, normalizing string | string[]
-                const headers = new Headers();
-                const reqHeaders = request.headers as Record<
-                  string,
-                  string | string[] | undefined
-                >;
-
-                for (const key in reqHeaders) {
-                  const value = reqHeaders[key];
-
-                  if (typeof value === 'string') {
-                    headers.set(key, value);
-                  } else if (Array.isArray(value)) {
-                    for (const v of value) {
-                      headers.append(key, v);
-                    }
-                  }
-                }
-
-                // First, delete any sensitive SSR headers that might be present in the client request
-                // This prevents clients from spoofing these secure headers
-                headers.delete('X-SSR-Request');
-                headers.delete('X-SSR-Original-IP');
-                headers.delete('X-SSR-Forwarded-User-Agent');
-                headers.delete('X-Correlation-ID');
-
-                // Now set these headers with our trusted server-side values
-                headers.set('X-SSR-Request', 'true');
-                headers.set('X-SSR-Original-IP', request.clientIP);
-
-                // Forward the resolved end-user user agent if needed
-                if (request.clientUserAgent) {
-                  headers.set(
-                    'X-SSR-Forwarded-User-Agent',
-                    request.clientUserAgent,
-                  );
-                }
-
-                // Forward the correlation ID (which is the same as request ID at this point)
-                if ((request as unknown as { requestID: string }).requestID) {
-                  headers.set(
-                    'X-Correlation-ID',
-                    (request as unknown as { requestID: string }).requestID,
-                  );
-                }
-
-                // Apply cookie forwarding policy to inbound Cookie header
-                const originalCookieHeader = headers.get('cookie');
-                const filteredCookieHeader = applyCookiePolicyToCookieHeader(
-                  originalCookieHeader || undefined,
-                  this.cookieAllowList,
-                  this.cookieBlockList,
-                );
-
-                if (filteredCookieHeader && filteredCookieHeader.length > 0) {
-                  headers.set('cookie', filteredCookieHeader);
-                } else {
-                  headers.delete('cookie');
-                }
-
-                return headers;
-              })(),
-              signal: AbortSignal.timeout(
-                this.sharedOptions.ssrRenderTimeout ?? 5000,
-              ),
-            },
-          );
-
-          // Attach SSRHelper for server-only access in loaders
-          const SSRHelpers: SSRHelpers = {
-            fastifyRequest: request,
-            controlledReply: createControlledReply(request, reply),
-            handlers: this.pageDataHandlers,
-            resolvePageDataRequestOptions:
-              this.sharedOptions.resolvePageDataRequestOptions,
-            serverFetch: pageDataServerFetch,
-          } as const;
-
-          try {
-            Object.defineProperty(fetchRequest, 'SSRHelpers', {
-              value: SSRHelpers,
-              enumerable: false,
-              configurable: false,
-              writable: false,
-            });
-          } catch {
-            // If defineProperty fails for any reason, fallback to direct assignment
-            (
-              fetchRequest as unknown as { SSRHelpers?: SSRHelpers }
-            ).SSRHelpers = SSRHelpers;
-          }
-
-          // --- Render the App ---
-          try {
-            // Resolved once above, before the template's CSP hashes were
-            // settled against it, so the value the components see through
-            // useCDNBaseURL() is the same one those hashes were taken with.
-            const CDNBaseURL = requestCDNBaseURL;
-
-            const renderResult = await render({
-              type: 'ssr',
-              fetchRequest,
-              unirendContext: {
-                renderMode: 'ssr',
-                isDevelopment: (
-                  request as FastifyRequest & { isDevelopment: boolean }
-                ).isDevelopment,
-                fetchRequest: fetchRequest,
-                publicAppConfig: request.publicAppConfig,
-                cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
-                domainInfo: request.domainInfo,
-                requestContextRevision: '0-0', // Initial revision for this request
-              },
-            });
-
-            if (renderResult.resultType === 'page') {
-              // ---> Extract status code from render result
-              const statusCode = renderResult.statusCode || 200;
-
-              // ---> Extract cookies from ssOnlyData set by data loader
-              // cookies are returned as an array of strings, each string is a cookie header value already formatted
-              const cookies = renderResult.ssOnlyData?.cookies;
-
-              // set cookies on reply
-              if (Array.isArray(cookies)) {
-                const filteredCookies = applyCookiePolicyToSetCookie(
-                  cookies as string[],
-                  this.cookieAllowList,
-                  this.cookieBlockList,
-                );
-
-                for (const cookie of filteredCookies) {
-                  reply.header('Set-Cookie', cookie);
-                }
-              }
-
-              // if a 500 error is returned, send the server 500 error page version instead
-              /// This is used when there is a error boundary that sets the custom 500 error page
-              // To simplify return a server generated 500 error page instead of trying to hydrate the custom 500 error page error boundary
-              if (statusCode === 500) {
-                const error =
-                  renderResult.errorDetails ||
-                  new Error('Internal Server Error');
-
-                return await this.handleSSRError(
-                  request,
-                  reply,
-                  error,
-                  appConfig,
-                );
-              }
-
-              // --- Prepare head data for injection ---
-              const headParts = [
-                renderResult.head?.title || '',
-                renderResult.head?.meta || '',
-                renderResult.head?.link || '',
-              ].filter(Boolean);
-
-              const headInject = headParts.join('\n');
-
-              const finalHTML = await injectContent(
-                template,
-                headInject,
-                renderResult.html,
-                {
-                  context: {
-                    app: request.publicAppConfig,
-                    // inject per-request context so client-side React hydrates with the same values
-                    request: request.requestContext,
-                  },
-                  CDNBaseURL,
-                  domainInfo: request.domainInfo,
-                  htmlAttrs: renderResult.head?.htmlAttrs,
-                  bodyAttrs: renderResult.head?.bodyAttrs,
-                  // Covers the inline content whose bytes are decided by this
-                  // render rather than by the template: anything the page
-                  // rendered itself, a React 19 hoistable `<style>` among the
-                  // likeliest, plus a React Router hydration script in a shape
-                  // injectContent declined to lift into the data block and so
-                  // passes through verbatim. The template hashes above were
-                  // contributed before rendering and cannot know about any of
-                  // it. Guarded on the same decoration they are, so a server
-                  // without a CSP does no work for it.
-                  addCSPSources: request.addCSPSources
-                    ? (sources) => request.addCSPSources?.(sources)
-                    : undefined,
-                },
-              );
-
-              // ---> Send response with the extracted status code
-              if (statusCode >= 400) {
-                reply.header('Cache-Control', 'no-store');
-              }
-
-              // Return the HTML string instead of calling reply.send() directly.
-              // In Fastify 5, async handlers that call reply.send() and return undefined
-              // trigger wrapThenable to call reply.send(undefined) a second time
-              // while any async onSend hook is still pending (reply.sent stays false
-              // until headers are actually written). Returning the payload here lets
-              // wrapThenable make exactly one reply.send() call.
-              reply.code(statusCode).header('Content-Type', 'text/html');
-              return finalHTML;
-            } else if (renderResult.resultType === 'response') {
-              // If React Router returned a Response (redirect/error as a response), handle it
-              // Forward status and headers
-              reply.code(renderResult.response.status);
-
-              // Apply no-store for all 4xx/5xx in SSR Response path
-              if (renderResult.response.status >= 400) {
-                reply.header('Cache-Control', 'no-store');
-              }
-
-              // Forward headers safe for redirects/responses
-              // Headers is iterable at runtime but TS DOM lib types don't expose entries(),
-              // so we cast to the expected iterable shape for safe iteration.
-              const responseHeaders = renderResult.response
-                .headers as unknown as Iterable<[string, string]>;
-
-              for (const [key, value] of Array.from(responseHeaders)) {
-                const lowerKey = key.toLowerCase();
-
-                if (lowerKey === 'location' || lowerKey === 'set-cookie') {
-                  if (lowerKey === 'set-cookie') {
-                    const filtered = applyCookiePolicyToSetCookie(
-                      value,
-                      this.cookieAllowList,
-                      this.cookieBlockList,
-                    );
-
-                    for (const v of filtered) {
-                      reply.header('Set-Cookie', v);
-                    }
-                  } else {
-                    reply.header(key, value);
-                  }
-                }
-              }
-
-              // Return the body (or undefined for an intentionally empty
-              // response) so wrapThenable makes exactly one reply.send() call.
-              // See the page path above for why.
-              try {
-                const body = await renderResult.response.text();
-                return body || undefined;
-              } catch (bodyError) {
-                request.log.error(
-                  {
-                    err: bodyError,
-                    method: request.method,
-                    url: request.url,
-                  },
-                  `[${this.serverLabel}] Error reading response body`,
-                );
-
-                // If we cannot read the body from a returned Response, treat it
-                // as an internal server failure rather than silently ending the
-                // request with an empty body under the original status code.
-                return await this.handleSSRError(
-                  request,
-                  reply,
-                  bodyError instanceof Error
-                    ? bodyError
-                    : new Error('Failed to read response body'),
-                  appConfig,
-                );
-              }
-            } else if (renderResult.resultType === 'render-error') {
-              // Handle render errors
-              return await this.handleSSRError(
-                request,
-                reply,
-                renderResult.error,
-                appConfig,
-              );
-            } else {
-              // Handle unexpected result types (this should never happen with proper typing)
-              // TypeScript knows this is never, but we handle it for runtime safety
-              const resultType =
-                (renderResult as { resultType?: string }).resultType ||
-                'unknown';
-              const unexpectedError = new Error(
-                `Unexpected render result type: ${resultType}`,
-              );
-
-              return await this.handleSSRError(
-                request,
-                reply,
-                unexpectedError,
-                appConfig,
-              );
-            }
-          } catch (error) {
-            return await this.handleSSRError(
-              request,
-              reply,
-              error as Error,
-              appConfig,
-            );
-          }
-
-          // Safety check - if we somehow reach here without sending a response
-          if (!reply.sent && !reply.raw.headersSent) {
-            this.fastifyInstance?.log.warn(
-              'No response was sent, sending 500 error',
-            );
-
-            // Re-fetch appConfig for safety check (should always exist, but be defensive)
-            const safetyAppKey = request.activeSSRApp || '__default__';
-            const fallbackAppConfig =
-              this.apps.get(safetyAppKey) || this.apps.get('__default__');
-
-            if (!fallbackAppConfig) {
-              // Ultimate fallback if even default app is missing
-              reply.code(500).header('Content-Type', 'text/plain');
-              return 'Internal Server Error';
-            }
-
-            // TypeScript doesn't narrow the type properly here, but we've verified it exists above
-            return await this.handleSSRError(
-              request,
-              reply,
-              new Error('No response was generated'),
-              fallbackAppConfig as SSRInternalAppConfig,
-            );
-          }
+          return this.handleUnmatchedRequest(request, reply);
         },
       );
 
@@ -2601,7 +2151,737 @@ export class SSRServer<
   }
 
   /**
-   * Handles API 404 not found responses with JSON envelopes
+   * Assembles the shared API/page-data not-found resolution config in one
+   * place, so every caller resolves 404s identically.
+   * @private
+   */
+  private notFoundResolutionConfig(): APINotFoundResolutionConfig {
+    return {
+      // The resolver invokes the handler with the class configured on this
+      // server, so widening the params type back to the base is safe.
+      handler: this.sharedOptions.APIHandling?.notFoundHandler as
+        APINotFoundHandlerOption | undefined,
+      serverLabel: this.serverLabel,
+      HelpersClass: this.APIResponseHelpersClass,
+      apiPrefix: this.normalizedAPIPrefix,
+      pageDataEndpoint: this.normalizedPageDataEndpoint,
+    };
+  }
+
+  /**
+   * Registers the not-found handler that answers everything the `GET '*'`
+   * catch-all does not match: every non-GET miss, and any plugin route handler
+   * that returns `reply.callNotFound()`.
+   *
+   * Without it those requests fell through to Fastify's stock JSON 404, which
+   * is the wrong shape on both sides of the split — an API path never got the
+   * envelope this server configures, and a web path never reached React on a
+   * server whose whole premise is that a 404 renders the app's own page.
+   *
+   * Plugins receive a controlled wrapper over the root instance rather than an
+   * encapsulated scope, and that wrapper exposes no `setNotFoundHandler`, so no
+   * plugin can shadow this one.
+   *
+   * @private
+   */
+  private setupNotFoundHandler(): void {
+    if (!this.fastifyInstance) {
+      return;
+    }
+
+    this.fastifyInstance.setNotFoundHandler(
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        return this.handleUnmatchedRequest(request, reply);
+      },
+    );
+  }
+
+  /**
+   * Routes a request that no route claimed. An API or page-data path gets the
+   * JSON envelope, everything else renders through the active app.
+   *
+   * Both entry points land here — the `GET '*'` catch-all and the not-found
+   * handler that covers every non-GET miss and any plugin route returning
+   * `reply.callNotFound()` — so the classification can never drift between them.
+   *
+   * @param request The Fastify request object
+   * @param reply The Fastify reply object
+   * @private
+   */
+  private async handleUnmatchedRequest(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<unknown> {
+    // Check if this is an API request that should return 404 JSON instead of SSR
+    // classifyRequest handles false prefix internally (returns isAPI: false)
+    const { isAPI } = classifyRequest(
+      request.url,
+      this.normalizedAPIPrefix,
+      this.normalizedPageDataEndpoint,
+    );
+
+    if (isAPI && this.normalizedAPIPrefix) {
+      // This is an API request that didn't match any route - return 404 JSON
+      return this.handleAPINotFound(request, reply);
+    }
+
+    // A web path no route claimed. GET and HEAD render normally; anything else
+    // is a method this server has no route for, and must not be handed to
+    // React Router with its original method.
+    //
+    // React Router's static handler runs the matched route's `action` for a
+    // non-GET request, which is how <Form method="post"> is meant to work in a
+    // React Router app. Here it would mean a request Fastify never routed
+    // executing the app's mutation code. And for the far more common route
+    // with no action it answers 405, deciding that from a route object having
+    // matched — so an app with the recommended `path: '*'` catch-all 405s even
+    // a URL that genuinely does not exist, which is not a distinction worth
+    // forwarding.
+    //
+    // So it renders as a GET and answers 404. GET makes running an action
+    // structurally impossible rather than merely discouraged, and the request
+    // gets whatever the app renders for that URL, which for an unknown path is
+    // the app's own 404 page.
+    const isReadMethod = request.method === 'GET' || request.method === 'HEAD';
+
+    // Whether the answer is a 404 whatever the render decides, which is a
+    // different question from what method to render with.
+    //
+    // Everything on the not-found path renders, so a web 404 is the app's own
+    // 404 page, branded and hydrated, on every route into it. That is the whole
+    // premise of an SSR server and it is what makes the status the only thing
+    // worth overriding here.
+    //
+    // `request.is404` is what tells this function's two entry points apart,
+    // since it serves both: true for a method miss and for a plugin route
+    // returning `reply.callNotFound()`, false for the `GET '*'` catch-all whose
+    // GETs are ordinary page requests and must keep the render's own status.
+    // Without it a delegated GET kept that status too, so a plugin hiding a page
+    // whose URL the app renders answered 200 with that page, and a redirect the
+    // render produced was forwarded. (Fastify clears `routeOptions` before the
+    // not-found handler runs, so a delegation and a genuine miss cannot be told
+    // apart there. `is404` is the signal that survives, and both want the same
+    // 404 anyway.)
+    //
+    // `|| !isReadMethod` because a non-read method that reached here is
+    // unmatched whatever `is404` says, and the override must not depend on
+    // which entry point noticed.
+    //
+    // What this does not do is force the *body*. The render is of the URL that
+    // was asked for, and its loaders run normally, so when the app really
+    // routes it the caller gets that page's real markup under a 404. Gating
+    // therefore belongs in the page data handler that produces the page's data,
+    // via `request.trigger404()`, or in a hook that sends its own response.
+    // Note that a hook reaching for `reply.callNotFound()` lands right back
+    // here and renders like any other delegation, so it is not a way out.
+    const isForcedNotFound = request.is404 === true || !isReadMethod;
+
+    return this.handleSSRRequest(request, reply, {
+      isUnmatchedNonReadMethod: !isReadMethod,
+      isForcedNotFound,
+    });
+  }
+
+  /**
+   * Renders a request through the active app's server entry and returns the
+   * HTML, so wrapThenable makes exactly one reply.send() call.
+   *
+   * Extracted from the `GET '*'` catch-all so the not-found handler can serve
+   * the identical response for a request the catch-all never saw.
+   *
+   * One caller, `handleUnmatchedRequest`, which is itself reached two ways and
+   * that is why the rules below exist. Through the `GET '*'` catch-all it is an
+   * ordinary page request and both flags are false. Through the not-found
+   * handler it is anything that reached the server: a POST or a DELETE that no
+   * route claimed, and any method a plugin route handed back with
+   * `reply.callNotFound()`. Those requests are rendered so the caller gets
+   * the app's own 404 page rather than a bare envelope, which means app code
+   * runs for a request the server never routed, and that is the thing this
+   * function has to bound:
+   *
+   * 1. **The render never sees a non-read method.** React Router runs a
+   *    matched route's `action` for any non-GET request, and route actions are
+   *    not part of this framework's model. Coerced to GET below, at the one
+   *    point every render passes through. Keyed on
+   *    `isUnmatchedNonReadMethod`, which is about the method alone.
+   * 2. **The answer is 404 whatever the render decided.** A POST that no route
+   *    claimed, to a URL that happens to render, must not come back 200, and a redirect
+   *    must not come back at all, since the client sent a POST and a 307 would
+   *    tell it to repeat that POST elsewhere. Applied to both the `page` and
+   *    the `response` result, since a custom server entry can answer through
+   *    either. Keyed on `isForcedNotFound`, which is the separate question: a
+   *    GET a plugin delegated with `reply.callNotFound()` is a 404 too, even
+   *    though its method needed no coercion.
+   * 3. **A 5xx is the exception, and the only one.** Rendering runs the app's
+   *    loaders and components, so it can fail the same way a GET of that URL
+   *    would. Answering 404 there would hide a real server error and skip
+   *    `get500ErrorPage`. A render that throws already answers 500 through the
+   *    `render-error` branch, so a render that reports the same failure by
+   *    returning it has to agree.
+   *
+   * @param request The Fastify request object
+   * @param reply The Fastify reply object
+   * @private
+   */
+  private async handleSSRRequest(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    options: {
+      /**
+       * Set for a non-GET/HEAD request that no route claimed. Renders as a GET
+       * so React Router cannot run a route action. See
+       * `handleUnmatchedRequest`.
+       */
+      isUnmatchedNonReadMethod?: boolean;
+      /**
+       * Set for any request that reached the not-found path, whatever its
+       * method. Forces the response to 404 whatever the render produced, apart
+       * from a 5xx. See `handleUnmatchedRequest`.
+       */
+      isForcedNotFound?: boolean;
+    } = {},
+  ): Promise<unknown> {
+    const { isUnmatchedNonReadMethod = false, isForcedNotFound = false } =
+      options;
+    // Get active app based on request.activeSSRApp (defaults to '__default__')
+    const appKey = request.activeSSRApp || '__default__';
+    const appConfig = this.apps.get(appKey);
+
+    if (!appConfig) {
+      const availableApps = Array.from(this.apps.keys()).join(', ');
+      throw new Error(
+        `Active app "${appKey}" not found. Available apps: ${availableApps}`,
+      );
+    }
+
+    // Load and call the actual render function from the server entry
+    // Signature should be: (renderRequest: RenderRequest) => Promise<RenderResult>
+    let render: (renderRequest: RenderRequest) => Promise<RenderResult>;
+
+    let template: string;
+
+    // The CDN base URL in force for this request, resolved once.
+    //
+    // Needed before the render rather than only at it, because the
+    // template's CSP hashes depend on it: a template may write
+    // __CDN__INJECTION__POINT__ into an inline <style>, and injectContent
+    // resolves that per request, so the hash has to be taken against the
+    // same value. `request.CDNBaseURL` is populated before preHandler, so
+    // it is already settled here.
+    //
+    // `??` rather than `||` so an explicit empty-string override, which is
+    // how a hook disables the CDN for one request, is honored instead of
+    // falling through to the app-level default.
+    const requestCDNBaseURL = normalizeCDNBaseURL(
+      request.CDNBaseURL ??
+        ('CDNBaseURL' in appConfig ? appConfig.CDNBaseURL : undefined),
+    );
+
+    if (
+      this.serverMode === 'development' &&
+      'viteDevServer' in appConfig &&
+      appConfig.viteDevServer
+    ) {
+      // --- Development SSR ---
+      // Read template fresh per request in dev mode
+      const templateResult = await this.loadHTMLTemplate(appConfig);
+      template = templateResult.content;
+
+      // Apply Vite HTML transforms (injects HMR client, plugins)
+      template = await appConfig.viteDevServer.transformIndexHtml(
+        request.url,
+        template,
+      );
+
+      // Hash after Vite, not before. transformIndexHtml runs after
+      // processTemplate and adds inline content of its own, the React
+      // refresh preamble among it, so hashes taken earlier would be
+      // missing exactly the scripts that only exist in development.
+      //
+      // Guarded on the decoration rather than on a mode flag: it is
+      // absent unless securityHeaders is registered with a csp policy, so
+      // a dev server that is not using CSP pays nothing for this.
+      if (request.addCSPSources) {
+        request.addCSPSources(
+          resolveTemplateCSPHashes(
+            // Still a template at this point, so injectContent has yet to
+            // resolve the CDN placeholder in it and any inline block
+            // carrying one has to be held back rather than hashed here.
+            await collectTemplateCSPHashes(template, {
+              cdnPlaceholderPending: true,
+            }),
+            requestCDNBaseURL,
+          ),
+        );
+      }
+
+      // Load server entry using Vite's SSR loader (from src)
+      const entryServer = await appConfig.viteDevServer.ssrLoadModule(
+        appConfig.sourcePaths.serverEntry,
+      );
+
+      if (!entryServer.render || typeof entryServer.render !== 'function') {
+        throw new Error("Server entry module must export a 'render' function");
+      }
+
+      // Type assertion: We've validated render exists and is a function
+      render = entryServer.render as (
+        renderRequest: RenderRequest,
+      ) => Promise<RenderResult>;
+    } else {
+      // --- Production SSR ---
+      // Use template and render function loaded at startup
+      // Both are loaded once at startup for performance and fail-fast validation
+      if (
+        !('cachedHTMLTemplate' in appConfig) ||
+        !appConfig.cachedHTMLTemplate
+      ) {
+        throw new Error(
+          `HTML template not loaded for app "${appKey}" in production mode`,
+        );
+      }
+
+      if (
+        !('cachedRenderFunction' in appConfig) ||
+        !appConfig.cachedRenderFunction
+      ) {
+        throw new Error(
+          `Render function not loaded for app "${appKey}" in production mode`,
+        );
+      }
+
+      template = appConfig.cachedHTMLTemplate;
+      render = appConfig.cachedRenderFunction;
+
+      // Hashed once at startup, so this is a lookup rather than work,
+      // except for any inline block carrying the CDN placeholder. Those
+      // could not be hashed then, since the value they resolve to is
+      // per request, so resolveTemplateCSPHashes settles them here. It
+      // returns the cached object untouched when there are none, which is
+      // the usual case.
+      if (request.addCSPSources && appConfig.cachedTemplateCSPHashes) {
+        request.addCSPSources(
+          resolveTemplateCSPHashes(
+            appConfig.cachedTemplateCSPHashes,
+            requestCDNBaseURL,
+          ),
+        );
+      }
+    }
+
+    // The render never sees a method that could run a route action, whatever
+    // the caller intended.
+    //
+    // React Router's static handler runs the matched route's `action` for any
+    // non-GET request, and route actions are not part of this framework's
+    // model: page data loaders populate page content and mutations go through
+    // API routes or page data handlers. Nothing should reach here with a
+    // non-read method — the catch-all is registered `GET '*'`, and
+    // `handleUnmatchedRequest` is the only other entry — so this is a
+    // backstop, placed at the one point every render passes through rather
+    // than trusting each caller. It coerces rather than throws so a future
+    // path that gets here cannot run an action even once, and logs because a
+    // silent coercion would hide the bug it exists to catch.
+    const isReadMethod = request.method === 'GET' || request.method === 'HEAD';
+
+    if (!isReadMethod && !isUnmatchedNonReadMethod) {
+      request.log.error(
+        {
+          errorCode: 'ssr_render_non_read_method',
+          method: request.method,
+          url: request.url,
+        },
+        `A ${request.method} request reached SSR rendering. It was rendered as a GET so no route action could run. This is a unirend bug.`,
+      );
+    }
+
+    // Create Fetch API Request object for React Router
+    // Create Request object with appropriate data
+    const fetchRequest = new Request(
+      `${request.protocol}://${request.hostname}${request.url}`,
+      {
+        // No body is attached to this Request in any case, so nothing is
+        // dropped by rendering a non-read method as a GET.
+        method: isReadMethod ? request.method : 'GET',
+        headers: (() => {
+          // Safely construct Headers from Fastify request headers, normalizing string | string[]
+          const headers = new Headers();
+          const reqHeaders = request.headers as Record<
+            string,
+            string | string[] | undefined
+          >;
+
+          for (const key in reqHeaders) {
+            const value = reqHeaders[key];
+
+            if (typeof value === 'string') {
+              headers.set(key, value);
+            } else if (Array.isArray(value)) {
+              for (const v of value) {
+                headers.append(key, v);
+              }
+            }
+          }
+
+          // First, delete any sensitive SSR headers that might be present in the client request
+          // This prevents clients from spoofing these secure headers
+          headers.delete('X-SSR-Request');
+          headers.delete('X-SSR-Original-IP');
+          headers.delete('X-SSR-Forwarded-User-Agent');
+          headers.delete('X-Correlation-ID');
+
+          // Now set these headers with our trusted server-side values
+          headers.set('X-SSR-Request', 'true');
+          headers.set('X-SSR-Original-IP', request.clientIP);
+
+          // Forward the resolved end-user user agent if needed
+          if (request.clientUserAgent) {
+            headers.set('X-SSR-Forwarded-User-Agent', request.clientUserAgent);
+          }
+
+          // Forward the correlation ID (which is the same as request ID at this point)
+          if ((request as unknown as { requestID: string }).requestID) {
+            headers.set(
+              'X-Correlation-ID',
+              (request as unknown as { requestID: string }).requestID,
+            );
+          }
+
+          // Apply cookie forwarding policy to inbound Cookie header
+          const originalCookieHeader = headers.get('cookie');
+          const filteredCookieHeader = applyCookiePolicyToCookieHeader(
+            originalCookieHeader || undefined,
+            this.cookieAllowList,
+            this.cookieBlockList,
+          );
+
+          if (filteredCookieHeader && filteredCookieHeader.length > 0) {
+            headers.set('cookie', filteredCookieHeader);
+          } else {
+            headers.delete('cookie');
+          }
+
+          return headers;
+        })(),
+        signal: AbortSignal.timeout(
+          this.sharedOptions.ssrRenderTimeout ?? 5000,
+        ),
+      },
+    );
+
+    // Attach SSRHelper for server-only access in loaders
+    const SSRHelpers: SSRHelpers = {
+      fastifyRequest: request,
+      controlledReply: createControlledReply(request, reply),
+      handlers: this.pageDataHandlers,
+      resolvePageDataRequestOptions:
+        this.sharedOptions.resolvePageDataRequestOptions,
+      serverFetch: pageDataServerFetch,
+    } as const;
+
+    try {
+      Object.defineProperty(fetchRequest, 'SSRHelpers', {
+        value: SSRHelpers,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+      });
+    } catch {
+      // If defineProperty fails for any reason, fallback to direct assignment
+      (fetchRequest as unknown as { SSRHelpers?: SSRHelpers }).SSRHelpers =
+        SSRHelpers;
+    }
+
+    // --- Render the App ---
+    try {
+      // Resolved once above, before the template's CSP hashes were
+      // settled against it, so the value the components see through
+      // useCDNBaseURL() is the same one those hashes were taken with.
+      const CDNBaseURL = requestCDNBaseURL;
+
+      const renderResult = await render({
+        type: 'ssr',
+        fetchRequest,
+        unirendContext: {
+          renderMode: 'ssr',
+          isDevelopment: (
+            request as FastifyRequest & { isDevelopment: boolean }
+          ).isDevelopment,
+          fetchRequest: fetchRequest,
+          publicAppConfig: request.publicAppConfig,
+          cdnBaseURL: normalizeCDNBaseURL(CDNBaseURL),
+          domainInfo: request.domainInfo,
+          requestContextRevision: '0-0', // Initial revision for this request
+        },
+      });
+
+      if (renderResult.resultType === 'page') {
+        // ---> Extract status code from render result
+        //
+        // A request that reached the not-found path is a 404 whatever the
+        // render decided. For an unknown URL the app's own 404 page already
+        // produced 404 and this changes nothing; the override is what stops a
+        // request to a URL that *does* render (a real page) coming back 200.
+        // That covers a POST no route claimed and, just as much, a GET a plugin
+        // route handed back with `reply.callNotFound()` to withhold the page.
+        //
+        // A 5xx is the exception, and the only one. The override exists to stop
+        // a success or a redirect being invented for a request no route
+        // claimed; a server error is neither invented nor a leak, it is a true
+        // statement about this server. Masking it as 404 would hide a real
+        // failure from whatever watches status codes, and would skip the
+        // `statusCode === 500` branch below that hands the request to
+        // `get500ErrorPage`. It also keeps the three result branches
+        // consistent: a render that throws lands in `render-error` and answers
+        // 500, so a render that reports the same failure by returning it should
+        // not answer 404 instead.
+        const renderedStatusCode = renderResult.statusCode || 200;
+        const statusCode =
+          isForcedNotFound && renderedStatusCode < 500
+            ? 404
+            : renderedStatusCode;
+
+        // ---> Extract cookies from ssOnlyData set by data loader
+        // cookies are returned as an array of strings, each string is a cookie header value already formatted
+        const cookies = renderResult.ssOnlyData?.cookies;
+
+        // set cookies on reply
+        if (Array.isArray(cookies)) {
+          const filteredCookies = applyCookiePolicyToSetCookie(
+            cookies as string[],
+            this.cookieAllowList,
+            this.cookieBlockList,
+          );
+
+          for (const cookie of filteredCookies) {
+            reply.header('Set-Cookie', cookie);
+          }
+        }
+
+        // if a 500 error is returned, send the server 500 error page version instead
+        /// This is used when there is a error boundary that sets the custom 500 error page
+        // To simplify return a server generated 500 error page instead of trying to hydrate the custom 500 error page error boundary
+        if (statusCode === 500) {
+          const error =
+            renderResult.errorDetails || new Error('Internal Server Error');
+
+          return await this.handleSSRError(request, reply, error, appConfig);
+        }
+
+        // --- Prepare head data for injection ---
+        const headParts = [
+          renderResult.head?.title || '',
+          renderResult.head?.meta || '',
+          renderResult.head?.link || '',
+        ].filter(Boolean);
+
+        const headInject = headParts.join('\n');
+
+        const finalHTML = await injectContent(
+          template,
+          headInject,
+          renderResult.html,
+          {
+            context: {
+              app: request.publicAppConfig,
+              // inject per-request context so client-side React hydrates with the same values
+              request: request.requestContext,
+            },
+            CDNBaseURL,
+            domainInfo: request.domainInfo,
+            htmlAttrs: renderResult.head?.htmlAttrs,
+            bodyAttrs: renderResult.head?.bodyAttrs,
+            // Covers the inline content whose bytes are decided by this
+            // render rather than by the template: anything the page
+            // rendered itself, a React 19 hoistable `<style>` among the
+            // likeliest, plus a React Router hydration script in a shape
+            // injectContent declined to lift into the data block and so
+            // passes through verbatim. The template hashes above were
+            // contributed before rendering and cannot know about any of
+            // it. Guarded on the same decoration they are, so a server
+            // without a CSP does no work for it.
+            addCSPSources: request.addCSPSources
+              ? (sources) => request.addCSPSources?.(sources)
+              : undefined,
+          },
+        );
+
+        // ---> Send response with the extracted status code
+        if (statusCode >= 400) {
+          reply.header('Cache-Control', 'no-store');
+        }
+
+        // Return the HTML string instead of calling reply.send() directly.
+        // In Fastify 5, async handlers that call reply.send() and return undefined
+        // trigger wrapThenable to call reply.send(undefined) a second time
+        // while any async onSend hook is still pending (reply.sent stays false
+        // until headers are actually written). Returning the payload here lets
+        // wrapThenable make exactly one reply.send() call.
+        reply.code(statusCode).header('Content-Type', 'text/html');
+        return finalHTML;
+      } else if (renderResult.resultType === 'response') {
+        // If React Router returned a Response (redirect/error as a response), handle it
+        //
+        // A `response` result is not only redirects: the type is a bare
+        // `Response`, and a custom server entry may return any status through
+        // it. So the not-found override applies here too, with no exception for
+        // redirects.
+        //
+        // A redirect looks like the one status worth forwarding, and it is the
+        // one that must not be. The render ran as a GET, but the *client* sent
+        // a POST or a DELETE and that is what its redirect handling keys on.
+        // A 307 or 308 tells it to repeat the original method and body at the
+        // Location, so a loader redirecting an unknown URL would turn a POST
+        // no route claimed into a POST, body included, against wherever that
+        // Location points. 301 and 302 preserve the method for everything
+        // except POST, so a DELETE follows as a DELETE. Rendering as a GET
+        // stops an action running on this server and does nothing about what
+        // the browser does next. A GET delegated with `reply.callNotFound()`
+        // has the same problem in a quieter form: the plugin withheld the page,
+        // so handing back a place to go next is the one thing it did not mean.
+        //
+        // Every request on the not-found path is therefore a plain 404, and the
+        // Location is dropped below so nothing is left for a client to follow.
+        // A 5xx is passed through for the same reason as on the page path
+        // above.
+        const isForced404 =
+          isForcedNotFound && renderResult.response.status < 500;
+
+        const responseStatusCode = isForced404
+          ? 404
+          : renderResult.response.status;
+
+        // Forward status and headers
+        reply.code(responseStatusCode);
+
+        // Apply no-store for all 4xx/5xx in SSR Response path
+        if (responseStatusCode >= 400) {
+          reply.header('Cache-Control', 'no-store');
+        }
+
+        // Forward headers safe for redirects/responses
+        // Headers is iterable at runtime but TS DOM lib types don't expose entries(),
+        // so we cast to the expected iterable shape for safe iteration.
+        const responseHeaders = renderResult.response
+          .headers as unknown as Iterable<[string, string]>;
+
+        for (const [key, value] of Array.from(responseHeaders)) {
+          const lowerKey = key.toLowerCase();
+
+          // A forced 404 carries no destination. Forwarding Location here
+          // would leave a redirect target on a response whose whole point is
+          // that nothing handled the request. Set-Cookie still passes, the
+          // same way it does on the page path.
+          if (lowerKey === 'location' && isForced404) {
+            continue;
+          }
+
+          if (lowerKey === 'location' || lowerKey === 'set-cookie') {
+            if (lowerKey === 'set-cookie') {
+              const filtered = applyCookiePolicyToSetCookie(
+                value,
+                this.cookieAllowList,
+                this.cookieBlockList,
+              );
+
+              for (const v of filtered) {
+                reply.header('Set-Cookie', v);
+              }
+            } else {
+              reply.header(key, value);
+            }
+          }
+        }
+
+        // Return the body (or undefined for an intentionally empty
+        // response) so wrapThenable makes exactly one reply.send() call.
+        // See the page path above for why.
+        try {
+          const body = await renderResult.response.text();
+          return body || undefined;
+        } catch (bodyError) {
+          request.log.error(
+            {
+              err: bodyError,
+              method: request.method,
+              url: request.url,
+            },
+            `[${this.serverLabel}] Error reading response body`,
+          );
+
+          // If we cannot read the body from a returned Response, treat it
+          // as an internal server failure rather than silently ending the
+          // request with an empty body under the original status code.
+          return await this.handleSSRError(
+            request,
+            reply,
+            bodyError instanceof Error
+              ? bodyError
+              : new Error('Failed to read response body'),
+            appConfig,
+          );
+        }
+      } else if (renderResult.resultType === 'render-error') {
+        // Handle render errors
+        return await this.handleSSRError(
+          request,
+          reply,
+          renderResult.error,
+          appConfig,
+        );
+      } else {
+        // Handle unexpected result types (this should never happen with proper typing)
+        // TypeScript knows this is never, but we handle it for runtime safety
+        const resultType =
+          (renderResult as { resultType?: string }).resultType || 'unknown';
+        const unexpectedError = new Error(
+          `Unexpected render result type: ${resultType}`,
+        );
+
+        return await this.handleSSRError(
+          request,
+          reply,
+          unexpectedError,
+          appConfig,
+        );
+      }
+    } catch (error) {
+      return await this.handleSSRError(
+        request,
+        reply,
+        error as Error,
+        appConfig,
+      );
+    }
+
+    // Safety check - if we somehow reach here without sending a response
+    if (!reply.sent && !reply.raw.headersSent) {
+      this.fastifyInstance?.log.warn('No response was sent, sending 500 error');
+
+      // Re-fetch appConfig for safety check (should always exist, but be defensive)
+      const safetyAppKey = request.activeSSRApp || '__default__';
+      const fallbackAppConfig =
+        this.apps.get(safetyAppKey) || this.apps.get('__default__');
+
+      if (!fallbackAppConfig) {
+        // Ultimate fallback if even default app is missing
+        reply.code(500).header('Content-Type', 'text/plain');
+        return 'Internal Server Error';
+      }
+
+      // TypeScript doesn't narrow the type properly here, but we've verified it exists above
+      return await this.handleSSRError(
+        request,
+        reply,
+        new Error('No response was generated'),
+        fallbackAppConfig as SSRInternalAppConfig,
+      );
+    }
+  }
+
+  /**
+   * Handles API 404 not found responses with JSON envelopes.
+   * Shares its resolution with APIServer so the two can never drift.
    * @param request The Fastify request object
    * @param reply The Fastify reply object
    * @private
@@ -2610,51 +2890,12 @@ export class SSRServer<
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<unknown> {
-    const { isPageData } = classifyRequest(
-      request.url,
-      this.normalizedAPIPrefix,
-      this.normalizedPageDataEndpoint,
-    );
-
-    // Check for custom API not-found handler
-    if (this.sharedOptions.APIHandling?.notFoundHandler) {
-      try {
-        const customResponse = await Promise.resolve(
-          this.sharedOptions.APIHandling.notFoundHandler(request, isPageData, {
-            APIResponseHelpers: this.APIResponseHelpersClass,
-          }),
-        );
-
-        // Extract status code from envelope response
-        const statusCode = customResponse.status_code || 404;
-        reply.code(statusCode).header('Cache-Control', 'no-store');
-
-        // Return the envelope instead of calling reply.send() directly.
-        // The caller returns this value so wrapThenable makes exactly one reply.send() call.
-        return customResponse;
-      } catch (handlerError) {
-        // If custom handler fails, fall back to default
-        request.log.error(
-          { err: handlerError, method: request.method, url: request.url },
-          `[${this.serverLabel}] Custom API not-found handler failed`,
-        );
-      }
-    }
-
-    // Default case
-    const response = createDefaultAPINotFoundResponse(
-      this.APIResponseHelpersClass,
+    // Returns the envelope instead of calling reply.send() directly.
+    // The caller returns this value so wrapThenable makes exactly one reply.send() call.
+    return resolveAPINotFoundResponse({
+      ...this.notFoundResolutionConfig(),
       request,
-      this.normalizedAPIPrefix,
-      this.normalizedPageDataEndpoint,
-    );
-
-    // Extract status code from envelope response
-    const statusCode =
-      (response as { status_code?: number }).status_code || 404;
-
-    reply.code(statusCode).header('Cache-Control', 'no-store');
-
-    return response;
+      reply,
+    });
   }
 }

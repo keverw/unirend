@@ -110,6 +110,9 @@ Notes:
   - If a handler is registered on the SSR server with the same `pageType` name as one on an external API server, the SSR server will short-circuit to its own handler and never make an HTTP request to the external API, even if `APIBaseURL` points elsewhere
   - In a multi-process or clustered deployment, each instance only short-circuits to its own registered handlers. Handlers on other instances are not visible and will fall back to HTTP
   - When using versioned handlers, short-circuit automatically selects the highest version registered. See: [Short-Circuit Versioning Behavior](./ssr.md#short-circuit-data-handlers) for details on version consistency between SSR and client-side navigation.
+  - [`request.trigger404()`](./ssr.md#abandoning-a-request-into-the-not-found-path) works on this path too. The handler runs in-process, so there is no separate HTTP request to 404: the server's not-found resolution produces its envelope inline, custom `notFoundHandler` and `APIResponseHelpersClass` included, and the page renders its 404 state. The envelope carries the SSR request's own `request_id` and `request_timestamp`, since that is the request it was produced for.
+
+One boundary if you have a custom `notFoundHandler`. On this path it is called with the **page request** (`GET /your-page`), while an unregistered page type reaches it through a real `POST /api/v1/page_data/<type>`. A handler that only builds an envelope sees no difference. A handler that reads `request.url`, `request.method`, headers, or body will produce different output for the two, which is the one way a triggered 404 can be told apart from a genuine miss here. Keep such a handler's output independent of those, or gate the behavior on `isPageData`, which is passed correctly on both paths.
 
 - HTTP‑based data loaders can forward selected request information from SSR to your API, including cookies, user agent, client IP, correlation ID, and non-empty `request.requestContext`. SSR removes untrusted headers and sets trusted ones before forwarding. See: [SSR header and cookies forwarding](./ssr.md#header-and-cookies-forwarding) and [Request Context Injection](./ssr.md#request-context-injection)
   - Cookie forwarding is controlled by `cookieForwarding` on the SSR server
@@ -126,7 +129,7 @@ Notes:
 
 Tip:
 
-- If your API base URL differs between server and client (e.g., internal vs public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__PUBLIC_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Public App Config Pattern](../README.md#public-app-config-pattern) for the complete pattern with examples.
+- If your API base URL differs between server and client (e.g., internal vs. public URLs), configure `APIBaseURL` dynamically. Since data loaders run outside the React component tree and don't have access to hooks, access `window.__PUBLIC_APP_CONFIG__` directly at module level on the client, with a server-side fallback (e.g., environment variable) for SSR. See the [Public App Config Pattern](../README.md#public-app-config-pattern) for the complete pattern with examples.
 
 Configuration (HTTP‑based Loader):
 
@@ -233,7 +236,7 @@ Use `PageSuccessResponse<T>` in a page component because the component renders a
 
 Note: type `T` for the success shape. Error envelopes may still appear in route data (especially rendered page error envelopes), so handle them with `RouteErrorBoundary` and `useDataLoaderEnvelopeError` before assuming the success shape. See [Error Handling (README)](../README.md#error-handling).
 
-`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass the full loader envelope to `UnirendHead` to render that metadata. See [UnirendHead - Hardcoded vs loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
+`meta.page` comes from the `pageMetadata` returned by your handler or local loader. Pass the full loader envelope to `UnirendHead` to render that metadata. See [UnirendHead - Hardcoded vs. loader-driven titles](./unirendhead.md#hardcoded-vs-loader-driven-titles).
 
 ### Loading Indicators
 
