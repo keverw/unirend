@@ -2177,6 +2177,33 @@ describe('derivePageDataNotFoundContext', () => {
     expect(context?.pageType).toBe('marketing/home');
   });
 
+  it('decodes a percent-encoded page type', () => {
+    // Fastify decodes `:pageType` for a registered route and the SSR
+    // short-circuit passes React Router's decoded value, so leaving this
+    // encoded would make an HTTP miss the only path reporting `foo%20bar`
+    // where every other path reports `foo bar`.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/foo%20bar', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('foo bar');
+  });
+
+  it('keeps a malformed page type rather than throwing', () => {
+    // A lone `%` makes decodeURIComponent throw. The URL is whatever a caller
+    // sent, so a malformed one has to answer like any other unregistered page
+    // type rather than failing into a different response.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/100%', loaderBody),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.pageType).toBe('100%');
+  });
+
   it('is not fooled by a prefix containing the endpoint word', () => {
     // Searching for the first `/page_data/` would report
     // `service/v1/page_data/home` here, and the short-circuit would then

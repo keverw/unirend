@@ -457,6 +457,29 @@ function asPlainObject<V>(value: unknown): Record<string, V> {
   return value as Record<string, V>;
 }
 
+/**
+ * Percent-decodes a page type sliced out of a raw request URL.
+ *
+ * Fastify decodes `:pageType` for a registered route, and the SSR
+ * short-circuit passes React Router's already-decoded value, so a raw slice
+ * here would be the only path reporting the encoded form. A page type carrying
+ * an encoded character would then reach a custom not-found handler as
+ * `foo%20bar` on an HTTP miss and `foo bar` everywhere else, and agreeing on
+ * this is the whole reason the context exists.
+ *
+ * Returns the value untouched when it is not valid encoding. This runs on a
+ * not-found path, so the URL is whatever a caller sent, and a lone `%` makes
+ * `decodeURIComponent` throw. Letting that escape would make a malformed URL
+ * answer differently from a merely unregistered one.
+ */
+function decodePageType(pageType: string): string {
+  try {
+    return decodeURIComponent(pageType);
+  } catch {
+    return pageType;
+  }
+}
+
 export function derivePageDataNotFoundContext(
   request: FastifyRequest,
   pageDataEndpoint: string,
@@ -506,7 +529,7 @@ export function derivePageDataNotFoundContext(
   }
 
   return {
-    pageType: rest.slice(marker.length),
+    pageType: decodePageType(rest.slice(marker.length)),
     // Checked rather than cast, to the same depth a registered route checks
     // them. An unregistered page type never reaches that validation, so a
     // caller can send `route_params` as a string or an array, and a bare cast

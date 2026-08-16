@@ -315,8 +315,16 @@ export async function checkTrigger404({
   }
 
   if (isResponseSent) {
-    // Cannot be undone. The sent response stands and this is logged as a
-    // handler bug rather than attempting a second send.
+    // Cannot be undone. The sent response stands rather than attempting a
+    // second send.
+    //
+    // Deliberately does not tell this handler to send later or trigger
+    // earlier. On the SSR short-circuit the reply belongs to the page request
+    // and is shared with every loader running in parallel, so `isResponseSent`
+    // cannot say *who* sent: a loader that committed the reply makes this fire
+    // for a sibling that did nothing wrong. The message states what is true on
+    // both paths, which is that a response was already out, and leaves the
+    // cause to the route and pageType fields.
     request.log.error(
       {
         errorCode: 'trigger_404_after_response_sent',
@@ -324,7 +332,7 @@ export async function checkTrigger404({
         pageType,
         version,
       },
-      `request.trigger404() was called for ${route} after the response had already been sent. The 404 could not be served and the response that was already sent stands. Call request.trigger404() before sending anything.`,
+      `request.trigger404() was called for ${route} after a response had already been sent. The 404 could not be served and the response that was already sent stands. During an SSR render the reply is shared with every page data loader on that request, so the response may have been sent by a different handler than this one.`,
     );
 
     return { triggered: true, isResponseSent: true };
