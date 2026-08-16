@@ -1405,6 +1405,57 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       expect(response.headers['cache-control']).toBe('no-store');
     });
 
+    it('drops a handler cookie when a hook already set several', async () => {
+      // The snapshot has to copy an array value, not hold the one Fastify is
+      // using. Two hook cookies make `set-cookie` an array, and Fastify's
+      // `reply.header()` pushes onto that same array rather than replacing it,
+      // so a snapshot taken by reference grows with the handler's cookie and
+      // the rollback puts it right back on the 404. One hook cookie is stored
+      // as a string and copies by value, which is why the test above passes
+      // either way.
+      const withCookieHook = async (isRouteRegistered: boolean) => {
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          plugins: [
+            (host) => {
+              host.addHook('preHandler', async (_request, reply) => {
+                reply.header('set-cookie', 'session=renewed; Path=/');
+                reply.header('set-cookie', 'csrf=token; Path=/');
+              });
+            },
+          ],
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('thing', (request, reply) => {
+            reply.header('set-cookie', 'handler=secret; Path=/');
+
+            return request.trigger404();
+          });
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          return await fastifyOf(server).inject(apiRouteInjection);
+        } finally {
+          await server.stop();
+        }
+      };
+
+      const triggered = await withCookieHook(true);
+      const genuine = await withCookieHook(false);
+
+      expect(triggered.statusCode).toBe(404);
+      // The hook's cookies run on both paths and stay, the handler's does not.
+      expect(triggered.headers['set-cookie']).toEqual(
+        genuine.headers['set-cookie'],
+      );
+      expect(String(triggered.headers['set-cookie'])).not.toContain(
+        'handler=secret',
+      );
+    });
+
     it('drops headers a page data handler set before triggering', async () => {
       const response = await runHeaders((server) => {
         server.pageDataHandler.register('thing', (request, reply) => {
