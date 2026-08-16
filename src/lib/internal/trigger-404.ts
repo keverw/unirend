@@ -124,8 +124,8 @@ export interface Trigger404Scope {
   /** True once `trigger404()` was called inside this invocation */
   wasRequested: boolean;
   /**
-   * Reply headers as they stood before the handler ran, restored if the
-   * handler abandons the request.
+   * Reply state as it stood before the handler ran, restored if the handler
+   * abandons the request.
    *
    * A handler that sets a header or a cookie and *then* triggers would
    * otherwise ship it on the 404, which is exactly the kind of tell this
@@ -137,7 +137,26 @@ export interface Trigger404Scope {
    * page request and is shared with every other loader running in parallel.
    * Restoring there could remove a header a different loader had just set.
    */
-  headerSnapshot?: Record<string, unknown>;
+  replySnapshot?: ReplySnapshot;
+}
+
+/**
+ * Reply state captured before a handler invocation, in the two places a
+ * response header can be waiting.
+ */
+export interface ReplySnapshot {
+  /** Headers already on the reply, array values copied */
+  headers: Record<string, unknown>;
+  /**
+   * `@fastify/cookie`'s pending-cookie buffer and its contents at snapshot
+   * time. Absent when that plugin is not registered.
+   */
+  pendingCookies?: {
+    /** The live buffer, so the restore writes back to the one in use */
+    buffer: Map<unknown, unknown>;
+    /** Its entries as they stood before the handler ran */
+    entries: [unknown, unknown][];
+  };
 }
 
 /**
@@ -165,50 +184,241 @@ export function openTrigger404Scope(reply?: FastifyReply): Trigger404Scope {
   return {
     isOpen: true,
     wasRequested: false,
-    headerSnapshot: reply ? snapshotReplyHeaders(reply) : undefined,
+    replySnapshot: reply ? snapshotReplyState(reply) : undefined,
   };
 }
 
 /**
- * Copies the reply's headers, array values included.
+ * The description of the symbol `@fastify/cookie` keys its pending-cookie
+ * buffer with. Matched by description because the symbol itself is module
+ * private — a plain `Symbol()` rather than `Symbol.for()` — so there is no way
+ * to name it from here.
  *
- * A shallow spread is not enough. Fastify stores a multi-valued `Set-Cookie` as
- * an array and *appends* to that same array on the next `reply.header()` call,
- * so a snapshot holding the array by reference grows along with it: a handler
- * that sets a cookie and then abandons the request would have that cookie
- * restored onto the 404, which is the tell the rollback exists to remove. Only
- * reached when a hook set two or more cookies before the handler ran, since a
- * single one is stored as a string and copies by value.
+ * Reaching into another package's internals is worth being uneasy about, so
+ * here is why it is the right call rather than merely the convenient one.
+ *
+ * **The wrapper is not a way out.** `ControlledReply.setCookie` looks like the
+ * obvious interception point, but it is `reply.setCookie.bind(reply)` — we
+ * re-expose the plugin's method and it owns the storage, so a handler's call
+ * lands in the buffer below either way. Recording the calls at the wrapper and
+ * replaying them later does not work either: a handler that sets a cookie and
+ * then sends its own response would have the send, and with it the plugin's
+ * `onSend` hook, run before the replay, so an ordinary non-triggering handler
+ * would silently lose the cookie. That trades a leak on a rare path for data
+ * loss on a common one.
+ *
+ * **A rename cannot reach a release.** `@fastify/cookie` is a direct dependency
+ * at a caret range rather than a peer, so the resolved version is one this repo
+ * chooses, and `prepublishOnly` runs `bun test`. The three `reply.setCookie()`
+ * cases in the "reply state set before the trigger" block compare a triggered
+ * 404 against a genuine miss through the real plugin, so they fail if this
+ * lookup stops finding the buffer. A bump that moved the symbol would break the
+ * build before it could ship. The buffer has carried this same description
+ * since it was introduced, and it is internal, so a rename belongs to a major
+ * the range excludes until someone bumps it deliberately — which runs those
+ * tests.
+ *
+ * **Startup is the wrong place to check.** There is no reply at boot, so a real
+ * check means synthesizing a request, and inspecting the reply prototype
+ * instead needs Fastify's own private `kReply` symbol: two private symbols to
+ * guard one. Refusing to boot would also turn a hardening regression, one
+ * cookie on a triggered 404, into an outage. The warn-once below covers what
+ * the tests cannot reach, which is a consumer resolving a different copy of the
+ * plugin through an override or their own registration: it fires both when the
+ * symbol is gone and when it is still there holding something that is not the
+ * `Map` this rollback knows how to rewrite.
  */
-function snapshotReplyHeaders(reply: FastifyReply): Record<string, unknown> {
-  const snapshot: Record<string, unknown> = {};
+const PENDING_COOKIES_SYMBOL_DESCRIPTION = 'fastify.reply.setCookies';
 
-  for (const [name, value] of Object.entries(reply.getHeaders())) {
-    snapshot[name] = Array.isArray(value) ? [...value] : value;
-  }
+/** Logged at most once per process, since the cause is a dependency change */
+let hasWarnedAboutPendingCookies = false;
 
-  return snapshot;
+/** Whether `@fastify/cookie` is registered on the server this reply belongs to */
+function hasCookiePlugin(reply: FastifyReply): boolean {
+  return (
+    typeof (reply as unknown as { setCookie?: unknown }).setCookie ===
+    'function'
+  );
 }
 
 /**
- * Puts the reply's headers back the way they were before the handler ran.
+ * Finds the buffer `reply.setCookie()` parks a cookie in until the response is
+ * sent.
+ *
+ * `@fastify/cookie` does not write a `Set-Cookie` header when a handler calls
+ * `setCookie()`. It stores the cookie in a `Map` on the reply and only
+ * serializes the whole map into the header from its own `onSend` hook, which
+ * runs long after this rollback. A rollback that only put the headers back
+ * would therefore miss every cookie set the documented way, and that cookie
+ * would ship on the 404 — the exact tell the rollback exists to remove.
+ *
+ * The symbol is declared by `decorateReply`, which for a non-function value
+ * assigns it as an own property of every reply, and the `Map` is assigned per
+ * request. The prototype chain is walked anyway so a future change of decorator
+ * shape cannot quietly turn this into a miss, while the value is always read
+ * off the reply itself.
+ *
+ * The slot and the buffer are reported separately on purpose, because "no
+ * buffer" has two very different causes. The `Map` is created lazily — the
+ * plugin's request hook normally makes one before the handler runs, but
+ * `cookies({ hook: false })` adds no hook, and then nothing creates it until
+ * the first `setCookie()` call. So an empty slot is ordinary and says only
+ * "not created yet", while a missing slot means the symbol is not where this
+ * module expects it. The raw value is carried too, so the restore can tell that
+ * apart from a slot holding something this rollback cannot rewrite, which is
+ * what an upstream change of container type would look like.
+ */
+interface PendingCookieSlot {
+  /** The symbol the plugin keys its buffer with, as found on this reply */
+  key: symbol;
+  /** The buffer itself, once the plugin has created it */
+  buffer?: Map<unknown, unknown>;
+  /**
+   * Whatever the slot held, before the `Map` narrowing. Nullish means the
+   * plugin simply has not created the buffer yet; anything else that is not a
+   * `Map` means the container changed shape upstream.
+   */
+  value: unknown;
+}
+
+function findPendingCookieSlot(
+  reply: FastifyReply,
+): PendingCookieSlot | undefined {
+  // Nothing to find without the plugin, and this runs on every handler
+  // invocation, so the symbol walk is skipped entirely for a server that has no
+  // cookies at all.
+  if (!hasCookiePlugin(reply)) {
+    return undefined;
+  }
+
+  const replyProperties = reply as unknown as Record<symbol, unknown>;
+
+  // `decorateReply` with a non-function value assigns the symbol as an own
+  // property of every reply, so this resolves on the first frame today. The
+  // prototype chain is walked anyway so a future change of decorator shape
+  // cannot quietly turn this into a miss. The value is always read off the
+  // reply itself, since that is where the per-request `Map` lands.
+  for (
+    let target: object | null = reply;
+    target;
+    target = Object.getPrototypeOf(target) as object | null
+  ) {
+    for (const key of Object.getOwnPropertySymbols(target)) {
+      if (key.description !== PENDING_COOKIES_SYMBOL_DESCRIPTION) {
+        continue;
+      }
+
+      const value = replyProperties[key];
+
+      return {
+        key,
+        buffer: value instanceof Map ? value : undefined,
+        value,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Copies the reply state a handler could add to before abandoning the request.
+ *
+ * Headers need more than a shallow spread. Fastify stores a multi-valued
+ * `Set-Cookie` as an array and *appends* to that same array on the next
+ * `reply.header()` call, so a snapshot holding the array by reference grows
+ * along with it: a handler that sets a cookie and then abandons the request
+ * would have that cookie restored onto the 404, which is the tell the rollback
+ * exists to remove. Only reached when a hook set two or more cookies before the
+ * handler ran, since a single one is stored as a string and copies by value.
+ *
+ * Cookies parked by `reply.setCookie()` are copied out of `@fastify/cookie`'s
+ * own buffer for the same reason, one level deep. The entry values are the
+ * plugin's own descriptors and are replaced wholesale on each `setCookie()`
+ * call rather than mutated, so the entry list is the whole truth here.
+ */
+function snapshotReplyState(reply: FastifyReply): ReplySnapshot {
+  const headers: Record<string, unknown> = {};
+
+  for (const [name, value] of Object.entries(reply.getHeaders())) {
+    headers[name] = Array.isArray(value) ? [...value] : value;
+  }
+
+  const buffer = findPendingCookieSlot(reply)?.buffer;
+
+  return {
+    headers,
+    pendingCookies: buffer
+      ? { buffer, entries: [...buffer.entries()] }
+      : undefined,
+  };
+}
+
+/**
+ * Puts the reply back the way it was before the handler ran.
  *
  * Removes every header currently set and re-applies the snapshot, rather than
  * diffing: a value may be an array (`Set-Cookie`), which no cheap comparison
- * gets right, and the snapshot is the whole truth for this reply anyway.
+ * gets right, and the snapshot is the whole truth for this reply anyway. The
+ * pending-cookie buffer is rewritten the same way, so a cookie a hook set
+ * before the handler — a session renewal, say — survives exactly as it does on
+ * a genuine miss, while one the handler set does not.
  */
-function restoreReplyHeaders(
-  reply: FastifyReply,
-  snapshot: Record<string, unknown>,
-): void {
+function restoreReplyState(reply: FastifyReply, snapshot: ReplySnapshot): void {
   for (const name of Object.keys(reply.getHeaders())) {
     reply.removeHeader(name);
   }
 
-  for (const [name, value] of Object.entries(snapshot)) {
+  for (const [name, value] of Object.entries(snapshot.headers)) {
     if (value !== undefined) {
       reply.header(name, value);
     }
+  }
+
+  // The buffer is looked up again rather than taken from the snapshot alone,
+  // because `@fastify/cookie` creates it lazily. Its request hook normally
+  // makes one before the handler runs, but `cookies({ hook: false })` adds no
+  // hook, and then the first thing to create the buffer is the handler's own
+  // `setCookie()` call. The snapshot has none in that case, and trusting it
+  // would leave every entry the handler just created in place, shipping exactly
+  // the cookie this rollback exists to drop.
+  //
+  // A buffer that appeared after the snapshot holds nothing but the handler's
+  // work, so the empty entry list clears it, which is correct by the same rule
+  // that restores a hook's entries when the snapshot did have one.
+  const entries = snapshot.pendingCookies?.entries ?? [];
+  const slot = snapshot.pendingCookies
+    ? undefined
+    : findPendingCookieSlot(reply);
+  const buffer = snapshot.pendingCookies?.buffer ?? slot?.buffer;
+
+  if (buffer) {
+    buffer.clear();
+
+    for (const [key, value] of entries) {
+      buffer.set(key, value);
+    }
+  } else if (
+    hasCookiePlugin(reply) &&
+    // The symbol is gone, or it is still there holding something this rollback
+    // cannot rewrite. Either way the plugin's internals moved.
+    (!slot || (slot.value !== null && slot.value !== undefined)) &&
+    !hasWarnedAboutPendingCookies
+  ) {
+    // The plugin is registered but its buffer is not where this module expects
+    // it, so an upgrade has moved or reshaped it. Deliberately not keyed on the
+    // buffer merely being absent, because that is ordinary: with
+    // `cookies({ hook: false })` and a handler that set no cookie, nothing ever
+    // created one, and warning there would report a dependency break to an app
+    // that has none. An empty slot is that case and stays quiet. A slot holding
+    // a non-`Map` is not: the restore above has nothing it can rewrite, so the
+    // handler's cookie would ship on the 404 with nothing else to say why.
+    hasWarnedAboutPendingCookies = true;
+
+    reply.log.warn(
+      { errorCode: 'trigger_404_pending_cookies_unavailable' },
+      "request.trigger404() could not find @fastify/cookie's pending-cookie buffer, so a cookie set with reply.setCookie() before the trigger may ship on the 404. Set cookies after the trigger check, or report this against unirend with your @fastify/cookie version.",
+    );
   }
 }
 
@@ -397,8 +607,8 @@ export async function checkTrigger404({
   // Roll back anything the handler put on the reply before abandoning. Must
   // run before the resolver, which sets the 404's own status and
   // `Cache-Control: no-store` and would otherwise be undone by it.
-  if (reply && scope.headerSnapshot) {
-    restoreReplyHeaders(reply, scope.headerSnapshot);
+  if (reply && scope.replySnapshot) {
+    restoreReplyState(reply, scope.replySnapshot);
   }
 
   const envelope = await resolveAPINotFoundResponse({

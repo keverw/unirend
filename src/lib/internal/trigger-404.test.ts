@@ -22,6 +22,7 @@ import { createTempDir } from 'lifecycleion/tmp-dir';
 import { overrideDevMode } from 'lifecycleion/dev-mode';
 import { serveAPI, servePlain } from '../api';
 import { StaticWebServer } from './static-web-server';
+import { cookies } from '../built-in-plugins/cookies';
 import type { APIServer } from './api-server';
 import { APIResponseHelpers } from '../../api-envelope';
 import {
@@ -1450,6 +1451,143 @@ describe('trigger404 byte-equality matrix on APIServer', () => {
       // The hook's cookies run on both paths and stay, the handler's does not.
       expect(triggered.headers['set-cookie']).toEqual(
         genuine.headers['set-cookie'],
+      );
+      expect(String(triggered.headers['set-cookie'])).not.toContain(
+        'handler=secret',
+      );
+    });
+
+    it('drops a cookie an API route set with reply.setCookie()', async () => {
+      // `reply.setCookie()` is the documented way to set one, and it does not
+      // touch the reply's headers at all: @fastify/cookie parks the cookie in a
+      // map on the reply and only serializes it from its own `onSend` hook,
+      // long after the rollback has run. A rollback that only put the headers
+      // back left the handler's cookie to ship on the 404.
+      const withCookiePlugin = async (isRouteRegistered: boolean) => {
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          plugins: [cookies()],
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('thing', (request, reply) => {
+            // Asserted rather than assumed. `ControlledReply.setCookie` is
+            // built conditionally, so an optional call on a wrapper that had
+            // stopped exposing it would set nothing, and every expectation
+            // below would then pass because the cookie was never set at all.
+            expect(reply.setCookie).toBeDefined();
+            reply.setCookie?.('session', 'secret', { path: '/' });
+
+            return request.trigger404();
+          });
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          return await fastifyOf(server).inject(apiRouteInjection);
+        } finally {
+          await server.stop();
+        }
+      };
+
+      const triggered = await withCookiePlugin(true);
+      const genuine = await withCookiePlugin(false);
+
+      expect(triggered.statusCode).toBe(404);
+      expect(triggered.headers['set-cookie']).toBeUndefined();
+      expect(triggered.headers['set-cookie']).toEqual(
+        genuine.headers['set-cookie'],
+      );
+    });
+
+    it('drops a cookie set with reply.setCookie() when the plugin adds no hook', async () => {
+      // `cookies({ hook: false })` is a supported configuration and it moves
+      // when the pending-cookie buffer comes into existence. With a hook, the
+      // plugin creates the buffer before the handler runs, so the snapshot sees
+      // it. Without one, nothing creates it until the handler's own
+      // `setCookie()` call does — so the snapshot has none, and a rollback that
+      // only rewrote a buffer the snapshot knew about would leave the handler's
+      // cookie sitting in the one that appeared after it.
+      const withoutCookieHook = async (isRouteRegistered: boolean) => {
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          plugins: [cookies({ hook: false })],
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('thing', (request, reply) => {
+            expect(reply.setCookie).toBeDefined();
+            reply.setCookie?.('session', 'secret', { path: '/' });
+
+            return request.trigger404();
+          });
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          return await fastifyOf(server).inject(apiRouteInjection);
+        } finally {
+          await server.stop();
+        }
+      };
+
+      const triggered = await withoutCookieHook(true);
+      const genuine = await withoutCookieHook(false);
+
+      expect(triggered.statusCode).toBe(404);
+      expect(triggered.headers['set-cookie']).toBeUndefined();
+      expect(triggered.headers['set-cookie']).toEqual(
+        genuine.headers['set-cookie'],
+      );
+    });
+
+    it('keeps a hook cookie set with reply.setCookie() and drops the handler cookie', async () => {
+      // The other half of the rule, and the case that decides the rollback
+      // rewrites the pending-cookie buffer rather than clearing it: a session
+      // renewal in a hook runs on a genuine miss too, so it has to survive the
+      // trigger for the two to stay indistinguishable.
+      const withCookieHook = async (isRouteRegistered: boolean) => {
+        const server = serveAPI({
+          getRequestID: pinnedRequestID,
+          plugins: [
+            cookies(),
+            (host) => {
+              host.addHook('preHandler', async (_request, reply) => {
+                reply.setCookie('session', 'renewed', { path: '/' });
+              });
+            },
+          ],
+        });
+
+        if (isRouteRegistered) {
+          server.api.get('thing', (request, reply) => {
+            expect(reply.setCookie).toBeDefined();
+            reply.setCookie?.('handler', 'secret', { path: '/' });
+
+            return request.trigger404();
+          });
+        }
+
+        await server.listen(await getPort(), 'localhost');
+
+        try {
+          return await fastifyOf(server).inject(apiRouteInjection);
+        } finally {
+          await server.stop();
+        }
+      };
+
+      const triggered = await withCookieHook(true);
+      const genuine = await withCookieHook(false);
+
+      expect(triggered.statusCode).toBe(404);
+      expect(triggered.headers['set-cookie']).toEqual(
+        genuine.headers['set-cookie'],
+      );
+      expect(String(triggered.headers['set-cookie'])).toContain(
+        'session=renewed',
       );
       expect(String(triggered.headers['set-cookie'])).not.toContain(
         'handler=secret',
