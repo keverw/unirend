@@ -13,6 +13,12 @@ import type { APIResponseHelpersClass } from '../types';
 /**
  * Get the APIResponseHelpersClass to use for creating error responses.
  *
+ * The decoration is how code that only holds a request reaches the class its
+ * server was configured with. It is set once at startup and unirend never
+ * varies it per request, so this is plumbing rather than an override point.
+ * Code that already has the configured class in hand should use that directly
+ * instead of looking it up here.
+ *
  * Priority:
  * 1. Custom class decorated on the request (if available)
  * 2. Default APIResponseHelpers class

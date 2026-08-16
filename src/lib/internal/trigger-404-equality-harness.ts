@@ -55,12 +55,43 @@ export const API_HELPERS_MARKER = 'custom-api-helpers';
 export const PAGE_HELPERS_MARKER = 'custom-page-helpers';
 
 /**
+ * The routing state a custom helpers class can reach through the request.
+ *
+ * Written into `meta` by both branches of {@link MarkerHelpers} so the
+ * byte-equality matrix actually exercises it. A helpers class receives the
+ * request, which is a documented way to branch per request, and these three
+ * fields are the ones that differ between a routed request and a genuine miss:
+ * a trigger carries its route's `params` and `routeOptions.url` and
+ * `is404 === false`, while a miss carries Fastify's wildcard params, no route
+ * URL, and `is404 === true`. If the not-found path ever hands the raw request
+ * to the helpers class again instead of the stripped `NotFoundRequest` view,
+ * every custom-helpers cell in the matrix fails on these fields.
+ */
+function probeRoutingState(request: unknown): Record<string, unknown> {
+  const fields = request as {
+    params?: unknown;
+    routeOptions?: { url?: string };
+    is404?: unknown;
+  };
+
+  return {
+    probe_params: fields.params ?? null,
+    probe_route_url: fields.routeOptions?.url ?? null,
+    probe_is404: fields.is404 ?? null,
+  };
+}
+
+/**
  * A custom `APIResponseHelpers` class for the custom-helpers cells.
  *
  * It overrides **both** error constructors, each with its own marker, so a
  * page-data cell that comes back carrying the page marker proves the shared
  * not-found path reached the `isPageData` branch rather than quietly building an
  * API envelope that happened to look close enough.
+ *
+ * Each branch also reflects the request's routing state back into `meta`, so
+ * the matrix compares what a helpers class can *see* and not only what the
+ * framework chose to write. See {@link probeRoutingState}.
  */
 export class MarkerHelpers extends APIResponseHelpers {
   public static override createAPIErrorResponse<M extends BaseMeta = BaseMeta>(
@@ -71,6 +102,7 @@ export class MarkerHelpers extends APIResponseHelpers {
       meta: {
         ...params.meta,
         helpers_marker: API_HELPERS_MARKER,
+        ...probeRoutingState(params.request),
       } as unknown as Partial<M>,
     });
   }
@@ -83,6 +115,7 @@ export class MarkerHelpers extends APIResponseHelpers {
       meta: {
         ...params.meta,
         helpers_marker: PAGE_HELPERS_MARKER,
+        ...probeRoutingState(params.request),
       } as unknown as Partial<M>,
     });
   }

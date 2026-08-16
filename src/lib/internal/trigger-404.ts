@@ -22,7 +22,6 @@ import {
   type APINotFoundResolutionConfig,
 } from './server-utils';
 import { getDevMode } from 'lifecycleion/dev-mode';
-import { getAPIResponseHelpersClass } from './api-response-helpers-utils';
 
 /**
  * Brand carried by the value `request.trigger404()` returns.
@@ -375,9 +374,12 @@ export async function checkTrigger404({
 
   const envelope = await resolveAPINotFoundResponse({
     ...resolution,
-    // Per-request, so a plugin that swapped the helpers class for this request
-    // is honored the same way a genuine miss would honor it.
-    HelpersClass: getAPIResponseHelpersClass(request),
+    // No HelpersClass override here on purpose. It arrives in the spread above,
+    // from the resolution the server installed, which is the same config a
+    // genuine miss resolves through — so the two cannot disagree about which
+    // class builds the envelope. Reading the request's decoration here instead
+    // is what made them disagree: that decoration is plumbing for code that
+    // holds only a request and never the server, which is not this path.
     classification,
     pageDataContext,
     request,

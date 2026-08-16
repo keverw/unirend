@@ -650,6 +650,27 @@ export class DataLoaderServerHandlerHelpers<
 
     // If handler returned false, it has already sent the response
     if (result === false) {
+      // Verify that the response was actually sent, the same way the HTTP
+      // route above does. Without this the two paths disagree about a handler
+      // bug: over HTTP a `false` with nothing sent throws and names itself,
+      // while here it used to return `false` and let the caller decide, which
+      // meant the mistake surfaced only as whatever the caller did next.
+      //
+      // `sent` is true for a hijacked reply as well as an ended one, which is
+      // how the envelope helpers terminate, so a handler that sent through
+      // APIResponseHelpers passes this.
+      if (!options.controlledReply.sent) {
+        const error = new Error(
+          `Handler for page type "${pageType}" returned false but did not send a response. ` +
+            `When returning false, you must send a response first using APIResponseHelpers.sendErrorEnvelope().`,
+        );
+        (error as unknown as { pageType: string }).pageType = pageType;
+        (error as unknown as { version: number }).version = latestVersion;
+        (error as unknown as { errorCode: string }).errorCode =
+          'handler_returned_false_without_sending';
+        throw error;
+      }
+
       return { exists: true, version: latestVersion, result: false };
     }
 

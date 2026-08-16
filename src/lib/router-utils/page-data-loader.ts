@@ -437,6 +437,44 @@ async function pageDataLoader({
             originalURL: (requestBody.original_url as string) || '',
           });
 
+          if (outcome.exists && outcome.result === false) {
+            // The handler sent its own response on the page request's reply, so
+            // the page's HTTP response is already committed and whatever this
+            // render produces is discarded. What must not happen is falling
+            // through to the HTTP fetch below, which would invoke the same
+            // handler a second time and repeat any side effect it ran — the
+            // same double-invocation the envelope case below describes.
+            //
+            // `false` reaches here two ways, and neither wants a log line of
+            // its own: a handler that sent via APIResponseHelpers and returned
+            // false is the documented contract working correctly, and
+            // request.trigger404() called after a response had already gone out
+            // is already logged as trigger_404_after_response_sent where it
+            // happens. The third way, a handler that returned false having sent
+            // nothing, does not reach here at all: callHandler throws
+            // handler_returned_false_without_sending for it, so the mistake is
+            // named rather than being absorbed into the placeholder below.
+            //
+            // The envelope below is a placeholder for a render that no longer
+            // has a response to produce. What keeps it off the wire is that the
+            // envelope helpers terminate through reply.hijack(), and Fastify's
+            // wrapThenable returns early on a hijacked reply, so nothing this
+            // render produces is written. Not handleSSRError, which is only
+            // reached if the render itself fails. It is a 500 rather than
+            // anything cheerier so that if the reply somehow is not committed,
+            // the answer is an error rather than a page rendered from data
+            // nobody produced.
+            return decorateWithSSROnlyData(
+              createErrorResponse(
+                config,
+                500,
+                config.errorDefaults.internalError.code,
+                config.errorDefaults.internalError.message,
+              ),
+              {},
+            );
+          }
+
           if (outcome.exists && outcome.result) {
             // Internal handler returned an envelope
             const result = outcome.result as PageResponseEnvelope;

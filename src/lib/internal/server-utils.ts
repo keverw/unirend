@@ -328,17 +328,24 @@ export function attachHandlerResponseToError(
 /**
  * Creates a default JSON 404 not-found response using the envelope pattern.
  * Used by both APIServer and SSRServer for consistent 404 handling.
- * @param request - The Fastify request object
+ * @param request - The Fastify request object, or the stripped not-found view
+ *   of it. A custom `APIResponseHelpersClass` receives whatever is passed here,
+ *   so `resolveAPINotFoundResponse` passes the view for the same reason it
+ *   hands one to a custom not-found handler.
  * @param apiPrefix - API prefix for request classification (e.g., "/api"), or false if API is disabled
  * @param pageDataEndpoint - Page data endpoint name (e.g., "page_data")
  * @param isPageDataOverride - Forces the page-data branch instead of deriving
- *   it from the request URL. Used by the SSR internal short-circuit path, whose
- *   request URL is the web route rather than the page-data endpoint.
+ *   it from the request URL. `resolveAPINotFoundResponse` always passes it, and
+ *   has to: the view it passes as `request` carries the frontend URL for a page
+ *   data request, so re-deriving here would answer an API envelope where an
+ *   HTTP miss answers a page one. Omitting it is only correct where the raw
+ *   request is passed and its URL is the one to classify, which today is the
+ *   plain-web branch in api-server.ts.
  * @returns JSON 404 response object
  */
 export function createDefaultAPINotFoundResponse(
   HelpersClass: APIResponseHelpersClass,
-  request: FastifyRequest,
+  request: FastifyRequest | NotFoundRequest,
   apiPrefix: string | false,
   pageDataEndpoint: string,
   isPageDataOverride?: boolean,
@@ -600,16 +607,20 @@ export async function resolveAPINotFoundResponse({
   const { isAPI, isPageData } =
     classification ?? classifyRequest(request.url, apiPrefix, pageDataEndpoint);
 
+  // Built for every path, not just the custom-handler one. The routing state it
+  // strips is the one thing that could tell a request.trigger404() apart from a
+  // genuine miss, and a custom APIResponseHelpersClass reads the request too,
+  // so the default envelope below has to be built from the same view.
+  const pageData = isPageData
+    ? (pageDataContext ??
+      derivePageDataNotFoundContext(request, pageDataEndpoint, apiPrefix))
+    : undefined;
+
+  const handlerRequest = createNotFoundRequestView(request, pageData);
+
   if (handler) {
     try {
       let customResponse: { status_code?: number } | undefined;
-
-      const pageData = isPageData
-        ? (pageDataContext ??
-          derivePageDataNotFoundContext(request, pageDataEndpoint, apiPrefix))
-        : undefined;
-
-      const handlerRequest = createNotFoundRequestView(request, pageData);
 
       if (isSplitHandler<Partial<SplitNotFoundHandler>>(handler)) {
         // Split form lets mixed API + web servers customize each handler
@@ -651,13 +662,20 @@ export async function resolveAPINotFoundResponse({
     }
   }
 
-  // Default case (also used when a split handler is missing its api entry)
+  // Default case (also used when a split handler is missing its api entry).
+  //
+  // The view rather than the raw request, so a custom APIResponseHelpersClass
+  // cannot read the routing state that differs between a trigger and a miss.
+  // `isPageData` is passed explicitly for the same reason it is on the SSR
+  // short-circuit: the view's `url` is the frontend one for a page data
+  // request, so re-deriving the classification from it here would disagree with
+  // the classification everything above was resolved under.
   const response = createDefaultAPINotFoundResponse(
     HelpersClass,
-    request,
+    handlerRequest,
     apiPrefix,
     pageDataEndpoint,
-    classification ? isPageData : undefined,
+    isPageData,
   );
 
   const statusCode = (response as { status_code?: number }).status_code || 404;
