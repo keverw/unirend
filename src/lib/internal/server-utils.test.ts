@@ -2231,6 +2231,24 @@ describe('derivePageDataNotFoundContext', () => {
     expect(context?.originalURL).toBe('/account/7?q=x');
   });
 
+  it('passes element values through, as the registered route does', () => {
+    // Container only, on purpose. A registered page data route checks these to
+    // the same depth and leaves values alone, so filtering here would make an
+    // HTTP miss disagree with the short-circuit, which passes the route's own
+    // params through. The type is as accurate as it is for a registered
+    // handler, no more.
+    const context = derivePageDataNotFoundContext(
+      requestFor('/api/v1/page_data/account', {
+        ...loaderBody,
+        route_params: { id: 123 },
+      }),
+      'page_data',
+      '/api',
+    );
+
+    expect(context?.routeParams).toEqual({ id: 123 } as never);
+  });
+
   it('returns nothing when the URL is not under the prefix', () => {
     const context = derivePageDataNotFoundContext(
       requestFor('/elsewhere/page_data/account', loaderBody),

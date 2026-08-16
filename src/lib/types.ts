@@ -1675,6 +1675,13 @@ export type NotFoundRequest = Omit<
  * The page data request a not-found handler is answering, as the frontend
  * described it.
  *
+ * `routeParams` and `queryParams` are checked to be objects, not element by
+ * element, which is the same depth a registered page data route checks them
+ * to. A caller sending `{ id: 123 }` yields a number where `routeParams` says
+ * string, equally on both paths. Validating further here would make an HTTP
+ * miss disagree with the SSR short-circuit, which passes the route's own
+ * values through untouched.
+ *
  * Present for a page data request that came from a unirend loader, and
  * identical whether the handler was reached by a genuine miss over HTTP or by
  * `request.trigger404()` during an SSR render.

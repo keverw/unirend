@@ -429,7 +429,19 @@ export interface APINotFoundResolutionConfig {
  * the shape the loader sends, which is what a direct curl to the endpoint
  * looks like. Both paths then agree on undefined.
  */
-/** A plain object, or an empty one for anything else a caller may have sent. */
+/**
+ * A plain object, or an empty one for anything else a caller may have sent.
+ *
+ * The container only, deliberately. A registered page data route validates
+ * these fields the same way, as an object that is not an array, and leaves the
+ * values alone. Filtering values here would make an HTTP miss disagree with
+ * the SSR short-circuit, which passes the route's own unfiltered params, and
+ * that disagreement is the thing this context exists to remove.
+ *
+ * So `routeParams` is as accurate as it is for a registered handler, no more:
+ * a caller sending `{ id: 123 }` yields a number where the type says string,
+ * on both paths equally.
+ */
 function asPlainObject<V>(value: unknown): Record<string, V> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -488,10 +500,10 @@ export function derivePageDataNotFoundContext(
 
   return {
     pageType: rest.slice(marker.length),
-    // Checked rather than cast. A registered route validates these before its
-    // handler runs, but an unregistered page type never reaches that, so a
-    // caller can send `route_params` as a string or an array and a cast would
-    // hand a custom handler a value the public type says is impossible.
+    // Checked rather than cast, to the same depth a registered route checks
+    // them. An unregistered page type never reaches that validation, so a
+    // caller can send `route_params` as a string or an array, and a bare cast
+    // would hand a custom handler something that is not an object at all.
     routeParams: asPlainObject<string>(fields.route_params),
     queryParams: asPlainObject<unknown>(fields.query_params),
     requestPath,
