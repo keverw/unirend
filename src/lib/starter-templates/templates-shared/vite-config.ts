@@ -48,7 +48,7 @@ export default defineConfig((configEnv) => {
         !isServerEntryPoint &&
           visualizer({
             filename: resolve(
-              __dirname,
+              import.meta.dirname,
               '../../../build/${appName}/client-stats.html',
             ),
             template: 'treemap',
@@ -58,7 +58,7 @@ export default defineConfig((configEnv) => {
         !isServerEntryPoint &&
           visualizer({
             filename: resolve(
-              __dirname,
+              import.meta.dirname,
               '../../../build/${appName}/client-stats-app.html',
             ),
             template: 'treemap',
@@ -69,7 +69,7 @@ export default defineConfig((configEnv) => {
         !isServerEntryPoint &&
           visualizer({
             filename: resolve(
-              __dirname,
+              import.meta.dirname,
               '../../../build/${appName}/client-stats-deps.html',
             ),
             template: 'treemap',
@@ -78,17 +78,17 @@ export default defineConfig((configEnv) => {
             include: [{ file: '**/node_modules/**' }],
           }),
       ].filter(Boolean),
-      root: __dirname, // app directory — absolute so it works regardless of CWD
+      root: import.meta.dirname, // app directory — absolute so it works regardless of CWD
       publicDir: 'public',
       resolve: {
         alias: {
-          '@': resolve(__dirname, '../../../src'),
+          '@': resolve(import.meta.dirname, '../../../src'),
         },
       },
       build: {
         // Use --outDir in npm scripts for client/server builds instead of this config property
         outDir: resolve(
-          __dirname,
+          import.meta.dirname,
           '../../../dist/apps/${appName}/set-via-cli-instead',
         ),
         emptyOutDir: true,
