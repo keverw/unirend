@@ -18,7 +18,7 @@
 - [0.3.1 (August 1, 2026)](#031-august-1-2026)
 - [0.4.0 (August 10, 2026)](#040-august-10-2026)
 - [0.4.1 (August 12, 2026)](#041-august-12-2026)
-- [Unreleased](#unreleased)
+- [0.4.2 (August 17, 2026)](#042-august-17-2026)
 
 <!-- tocstop -->
 
@@ -206,7 +206,7 @@ First milestone release. The `0.0.x` line was rapid prerelease iteration that wa
 
 - Newly scaffolded projects pass their own `bun run spellcheck` again. The generated `cspell.json` was missing the `Coep` and `Hsts` acronyms that the generated `eslint.config.js` naming-convention rules use, so a fresh repo reported 10 spelling issues out of the box. An existing generated repo can add `coep` and `hsts` to its `cspell.json` words.
 
-## Unreleased
+## 0.4.2 (August 17, 2026)
 
 - **Breaking:** a custom `notFoundHandler` now receives a `NotFoundRequest` rather than a `FastifyRequest`, exported from `unirend/server`. It is the same request with `params`, `routeOptions`, and `is404` removed, because those three differ between a genuine miss and a `request.trigger404()` and would make the two distinguishable. Its third argument gains `pageData` for a page data request, carrying the `pageType`, `routeParams`, `queryParams`, `requestPath`, and `originalURL` the frontend asked for, and `request.url` is that frontend URL rather than `/api/v1/page_data/<type>`. A plain API route has no `pageData`. Build the response from `request.url`, `isPageData`, and `pageData`, which agree however the handler was reached, rather than from `request.body` or headers, which do not. Most handlers need no change, since the parameter is inferred. Migrating: a handler that annotates the parameter as `FastifyRequest` changes that annotation to `NotFoundRequest`, and one that reads any of the three removed fields stops compiling. `APIResponseHelpers` accepts either request type. A custom `APIResponseHelpersClass` receives the same view.
 - **Type-level break:** `APIRouteHandler` and `PageDataHandler` now include the opaque `Trigger404Signal` in their return unions, exported from `unirend/server`. The widening is additive, so writing handlers is unaffected. Code that consumes a handler's return type, such as `ReturnType<APIRouteHandler>` or a wrapper that branches on `false` and then reads `status_code`, sees the extra union member and may need a narrowing check.
