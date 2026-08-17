@@ -15,10 +15,10 @@ describe('ensureCspell', () => {
     'eslintcache',
     'extensionless',
     'firsttris',
-    'Gruntfuggly',
     'jestrunner',
     'jmbeach',
     'Lifecycleion',
+    'Pythoner',
     'treemap',
     'Unirend',
   ];
