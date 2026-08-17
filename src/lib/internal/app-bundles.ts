@@ -46,6 +46,20 @@ import type { FastifyRequest } from 'fastify';
 const DEFAULT_APP_BUNDLE_KEY = '__default__';
 
 /**
+ * The part of a request these helpers actually read.
+ *
+ * Only the bundle decoration, because that is all any of them look at. Typing
+ * the parameter as `FastifyRequest` would have been the obvious choice and is
+ * the wrong one: a `notFoundHandler` receives `NotFoundRequest`, which is
+ * `Omit<FastifyRequest, 'params' | 'routeOptions' | 'is404'>` and therefore not
+ * assignable to `FastifyRequest`, so gating one would need a cast at every call
+ * — a cast that asserts far more than the helper needs and would go on
+ * asserting it if the shapes later diverged for a real reason. Accepting the
+ * decoration alone lets both request types through and says what is read.
+ */
+export type AppBundleRequest = Pick<FastifyRequest, 'activeSSRApp'>;
+
+/**
  * A checked list of app bundle keys, as returned by {@link defineAppBundles}.
  *
  * `TKey` is the union of the keys that were declared, inferred from the
@@ -85,10 +99,13 @@ export interface AppBundles<TKey extends string> {
    * would turn every gated route into a 404 with nothing to explain it. Gate on
    * the host or a header instead on a standalone API server.
    */
-  is<TMatch extends BundleKeyOrDefault<TKey>>(
-    request: FastifyRequest,
+  is<
+    TMatch extends BundleKeyOrDefault<TKey>,
+    TReq extends AppBundleRequest = AppBundleRequest,
+  >(
+    request: TReq,
     key: TMatch | readonly TMatch[],
-  ): request is FastifyRequest & { activeSSRApp: TMatch };
+  ): request is TReq & { activeSSRApp: TMatch };
 
   /**
    * Pick a value for the active bundle, falling back when none is listed.
@@ -124,10 +141,132 @@ export interface AppBundles<TKey extends string> {
    * widened to `string` and the types have stopped checking anything.
    */
   match<const TValue>(
-    request: FastifyRequest,
+    request: AppBundleRequest,
     cases: Partial<Record<BundleKeyOrDefault<TKey>, TValue>>,
     fallback: TValue,
   ): TValue;
+
+  /**
+   * Pick a *function* for the active bundle, falling back when none is listed.
+   *
+   * For dispatching behavior rather than data — a loader, a formatter, a
+   * fetch strategy that differs per bundle:
+   *
+   * ```ts
+   * const load = bundles.matchFn(
+   *   request,
+   *   { marketing: loadMarketingPage, 'app-shell': loadShellPage },
+   *   loadDefaultPage,
+   * );
+   *
+   * const data = await load(params);
+   * ```
+   *
+   * Same shape and same rules as {@link AppBundles.match} — optional cases, a
+   * required fallback, a compile error on an undeclared case key, a `TypeError`
+   * on a request with no active bundle. The runtime lookup is literally the
+   * same; this exists for what it does to the *types*.
+   *
+   * **Why not just use `match`.** `match` infers `TValue` from the cases, so a
+   * record of functions infers as a *union* of function types. Most branch sets
+   * still call fine, since TypeScript intersects the parameter lists and any
+   * branch you would want is already assignable to the others. What differs is
+   * where a genuinely bad branch is reported. A case whose parameter is
+   * narrower than the rest is accepted by `match` and only surfaces later, at
+   * the call site, as an intersection that names neither the branch nor the
+   * fallback. Constraining the cases to one callable shape here checks each
+   * branch where it is written, so the error names the branch that is wrong.
+   *
+   * `match` can already do this if you write the signature out yourself, as
+   * `match<(p: Params) => Promise<Data>>(...)` — an explicit type argument
+   * bypasses the union entirely. That works, and it is what this replaces:
+   * `TArgs` and `TReturn` infer from the fallback, so the signature is written
+   * once instead of at every dispatch site.
+   *
+   * **Why the cases are wrapped in `NoInfer`.** Inference runs left to right,
+   * and the cases come first, so without it they would win and the fallback
+   * would be checked against *them* — a branch with the wrong signature would
+   * be reported against the fallback, which is the one place that is not
+   * wrong. `match` still behaves that way and has a test pinning it. Blocking
+   * inference on the cases makes the fallback the single source of the
+   * signature and turns every branch into something checked against it, which
+   * is the entire ergonomic difference between this and an explicit type
+   * argument on `match`.
+   *
+   * **Annotate an inline fallback, or name it.** The signature is read from the
+   * fallback, so an inline arrow with no annotation contributes its own
+   * inferred return type rather than the handler type you have in mind, and
+   * named cases then fail against it. The error lands on the case, which is
+   * confusing, since the fallback is the under-typed one. Passing a named
+   * handler, or annotating the arrow, avoids it.
+   *
+   * **Server-phase only, like the rest of this API.** It needs a
+   * `FastifyRequest` with an active bundle, which exists during SSR and not on
+   * the client or under SSG, and not on a standalone `APIServer` — that server
+   * registers no app bundles, so nothing ever selected one. A loader that
+   * dispatches through this renders on the server and throws on client
+   * navigation. Gate on the host or a header where there is no active bundle.
+   *
+   * @throws {TypeError} If the request has no active app bundle
+   * @throws {Error} If a case names a bundle that was never declared
+   * @throws {TypeError} If the selected case is present but is not a function
+   */
+  matchFn<TArgs extends unknown[], TReturn>(
+    request: AppBundleRequest,
+    cases: Partial<
+      Record<BundleKeyOrDefault<TKey>, NoInfer<(...args: TArgs) => TReturn>>
+    >,
+    fallback: (...args: TArgs) => TReturn,
+  ): (...args: TArgs) => TReturn;
+
+  /**
+   * Build one handler that routes to a per-bundle handler when it is called.
+   *
+   * The same dispatch as {@link AppBundles.matchFn}, minus the `request`
+   * argument, because the handlers this is for already take the request first
+   * and it would otherwise have to be passed twice:
+   *
+   * ```ts
+   * server.pageDataHandler.register(
+   *   'not-found',
+   *   bundles.dispatch(
+   *     { ['__default__']: unusedSubdomainNotFound },
+   *     genericNotFound,
+   *   ),
+   * );
+   * ```
+   *
+   * What comes back is an ordinary function with the branches' own signature,
+   * so it drops straight into `register()` — there is nothing to unwrap and no
+   * argument list to forward by hand. The active bundle is read from the first
+   * argument at call time, so one registration serves every bundle and each
+   * request picks its own branch.
+   *
+   * Prefer {@link AppBundles.match} when the branches differ only in the data
+   * they feed to a shared call. Reach for this when they genuinely do different
+   * work — a different fetch, a different status code, a different shape.
+   *
+   * Undeclared case keys are refused here, when the handler is built, rather
+   * than on the first request that happens to reach a bad key. The rest of the
+   * checks are per-call and match `matchFn` exactly.
+   *
+   * **The cases are read once, when the handler is built.** They are copied at
+   * that point, so editing the object you passed afterwards changes nothing
+   * about the handler you got back. That is what keeps the build-time key check
+   * honest: a key added later would otherwise route requests having never been
+   * checked, because nothing re-reads the cases per request. Build a second
+   * handler if the branches really need to differ, and note that `matchFn`
+   * takes its cases per call and so has no such snapshot.
+   *
+   * @throws {Error} If a case names a bundle that was never declared. Thrown
+   *   from this call, not from the returned handler.
+   */
+  dispatch<TArgs extends [AppBundleRequest, ...unknown[]], TReturn>(
+    cases: Partial<
+      Record<BundleKeyOrDefault<TKey>, NoInfer<(...args: TArgs) => TReturn>>
+    >,
+    fallback: (...args: TArgs) => TReturn,
+  ): (...args: TArgs) => TReturn;
 
   /**
    * The given key, checked against the declared list and returned unchanged.
@@ -160,15 +299,6 @@ type BundleKeyOrDefault<TKey extends string> =
   TKey | typeof DEFAULT_APP_BUNDLE_KEY;
 
 /**
- * The request's active bundle, or a throw explaining why there isn't one.
- *
- * Shared by `is()` and `match()` so the two cannot disagree about what an
- * `APIServer` request means. Fail-closed is right for a forgotten `return` in
- * a working setup; a request with no SSR decoration at all is a wiring
- * mistake, and answering it silently would turn every gated route into a 404
- * with nothing to explain it.
- */
-/**
  * Refuses a key that was never declared.
  *
  * The types stop being a check once the list came from configuration, since
@@ -194,7 +324,59 @@ function assertDeclaredKey(
   );
 }
 
-function readActiveBundle(request: FastifyRequest): string {
+/**
+ * The listed function for a bundle, or the fallback, or a throw.
+ *
+ * Shared by `matchFn()` and `dispatch()` so the two cannot disagree.
+ *
+ * Presence decides which case wins, the same rule `match()` follows. What
+ * differs is the `undefined` value: `match()` returns it, which is right when
+ * the cases hold data, but both callers here promise something callable, so
+ * returning it would break its own signature and surface as "x is not a
+ * function" somewhere else entirely, with nothing naming the bundle. `Partial`
+ * admits the explicit `undefined` without `exactOptionalPropertyTypes`, so the
+ * types do not catch this one.
+ */
+function selectFunctionCase<TFn>(
+  activeKey: string,
+  cases: Record<string, TFn | undefined>,
+  fallback: TFn,
+  method: string,
+): TFn {
+  if (!Object.prototype.hasOwnProperty.call(cases, activeKey)) {
+    return fallback;
+  }
+
+  const selected = cases[activeKey];
+
+  if (typeof selected !== 'function') {
+    throw new TypeError(
+      `App bundle "${activeKey}" has a case in ${method}() whose value is ${selected === undefined ? 'undefined' : typeof selected}, not a function. Drop the case to take the fallback, or give it a function.`,
+    );
+  }
+
+  return selected;
+}
+
+/**
+ * The request's active bundle, or a throw explaining why there isn't one.
+ *
+ * Shared by all four of `is()`, `match()`, `matchFn()`, and `dispatch()`, so
+ * none of them can disagree about what an `APIServer` request means. A request
+ * with no SSR decoration at all is a wiring mistake, and answering it silently
+ * would turn every gated route into a 404 with nothing to explain it.
+ */
+function readActiveBundle(request: AppBundleRequest): string {
+  // Guarded before the property read so `dispatch()` called with nothing, or
+  // with a non-object first argument, reports what is wrong rather than
+  // "undefined is not an object". The types forbid it, but a handler reached
+  // from untyped code still gets a message naming the cause.
+  if (request === null || typeof request !== 'object') {
+    throw new TypeError(
+      `App bundles read the active bundle from a request, but got ${request === null ? 'null' : typeof request}. On an SSRServer this is the request the handler was called with.`,
+    );
+  }
+
   const activeKey: unknown = request.activeSSRApp;
 
   if (typeof activeKey !== 'string') {
@@ -257,6 +439,19 @@ export function defineAppBundles<TKey extends string>(
       );
     }
 
+    if (key === '__proto__') {
+      // Written as a plain property in a cases object, `__proto__` sets the
+      // prototype instead of creating an own property. `Object.keys` then does
+      // not see it, so the undeclared-key check cannot report it, and
+      // `hasOwnProperty` is false, so the case silently takes the fallback
+      // forever while `is()` on the same key returns true. That is precisely
+      // the silently-broken gate this helper exists to prevent, and it cannot
+      // be fixed at the case site, so the key is refused here.
+      throw new Error(
+        'Do not declare "__proto__" as an app bundle key. Written as a case in match(), matchFn(), or dispatch() it sets the object prototype rather than a case, so it would never match and nothing would report it. Rename the bundle.',
+      );
+    }
+
     if (key === DEFAULT_APP_BUNDLE_KEY) {
       throw new Error(
         `Do not declare "${DEFAULT_APP_BUNDLE_KEY}" in defineAppBundles(). It is the key of the app the server was created with, so it is always selectable and is never registered.`,
@@ -292,10 +487,13 @@ export function defineAppBundles<TKey extends string>(
   return {
     keys: declaredKeys,
 
-    is<TMatch extends BundleKeyOrDefault<TKey>>(
-      request: FastifyRequest,
+    is<
+      TMatch extends BundleKeyOrDefault<TKey>,
+      TReq extends AppBundleRequest = AppBundleRequest,
+    >(
+      request: TReq,
       key: TMatch | readonly TMatch[],
-    ): request is FastifyRequest & { activeSSRApp: TMatch } {
+    ): request is TReq & { activeSSRApp: TMatch } {
       const activeKey = readActiveBundle(request);
       const wanted: readonly string[] = Array.isArray(key)
         ? (key as readonly string[])
@@ -309,7 +507,7 @@ export function defineAppBundles<TKey extends string>(
     },
 
     match<const TValue>(
-      request: FastifyRequest,
+      request: AppBundleRequest,
       cases: Partial<Record<BundleKeyOrDefault<TKey>, TValue>>,
       fallback: TValue,
     ): TValue {
@@ -330,6 +528,66 @@ export function defineAppBundles<TKey extends string>(
       return Object.prototype.hasOwnProperty.call(cases, activeKey)
         ? (cases as Record<string, TValue>)[activeKey]
         : fallback;
+    },
+
+    matchFn<TArgs extends unknown[], TReturn>(
+      request: AppBundleRequest,
+      cases: Partial<
+        Record<BundleKeyOrDefault<TKey>, NoInfer<(...args: TArgs) => TReturn>>
+      >,
+      fallback: (...args: TArgs) => TReturn,
+    ): (...args: TArgs) => TReturn {
+      const activeKey = readActiveBundle(request);
+
+      for (const caseKey of Object.keys(cases)) {
+        assertDeclaredKey(caseKey, declared, declaredKeys, 'matchFn');
+      }
+
+      return selectFunctionCase(
+        activeKey,
+        cases as Record<string, ((...args: TArgs) => TReturn) | undefined>,
+        fallback,
+        'matchFn',
+      );
+    },
+
+    dispatch<TArgs extends [AppBundleRequest, ...unknown[]], TReturn>(
+      cases: Partial<
+        Record<BundleKeyOrDefault<TKey>, NoInfer<(...args: TArgs) => TReturn>>
+      >,
+      fallback: (...args: TArgs) => TReturn,
+    ): (...args: TArgs) => TReturn {
+      // Eagerly, so an undeclared key is reported where the handler is wired up
+      // rather than on whichever request first reaches the bad case. The other
+      // two cannot do this — they are handed the request and the cases at the
+      // same moment — but here the cases are known a whole phase earlier.
+      for (const caseKey of Object.keys(cases)) {
+        assertDeclaredKey(caseKey, declared, declaredKeys, 'dispatch');
+      }
+
+      // Snapshot, so what was validated above is what gets used. Holding the
+      // caller's object by reference would let a key added after this call
+      // route requests without ever passing the check, since the check has
+      // already run and nothing re-runs it per request. Copying once here
+      // closes that for good and costs nothing per request; re-validating on
+      // every call would cost something on every call, forever.
+      const snapshotCases: Record<
+        string,
+        ((...args: TArgs) => TReturn) | undefined
+      > = { ...cases };
+
+      return (...args: TArgs): TReturn => {
+        // The request is the first argument by construction, which is what
+        // lets this drop into `register()` without a forwarding wrapper.
+        const activeKey = readActiveBundle(args[0]);
+
+        return selectFunctionCase(
+          activeKey,
+          snapshotCases,
+          fallback,
+          'dispatch',
+        )(...args);
+      };
     },
 
     key(key) {
