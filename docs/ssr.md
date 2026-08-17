@@ -62,6 +62,12 @@
     - [3. Cookie-Based Routing](#3-cookie-based-routing)
   - [Gating Handlers on the Active App Bundle](#gating-handlers-on-the-active-app-bundle)
     - [Checked Bundle Keys](#checked-bundle-keys)
+      - [`is()`: Checking One Bundle or Several](#is-checking-one-bundle-or-several)
+      - [`match()`: Picking a Value per Bundle](#match-picking-a-value-per-bundle)
+      - [`dispatch()`: One Handler That Routes per Bundle](#dispatch-one-handler-that-routes-per-bundle)
+      - [`matchFn()`: Picking a Function per Bundle](#matchfn-picking-a-function-per-bundle)
+      - [`key()`: Checking a Registration Key](#key-checking-a-registration-key)
+      - [Details Worth Knowing](#details-worth-knowing)
     - [Example 1: Gating a Handler on the Active App Bundle](#example-1-gating-a-handler-on-the-active-app-bundle)
     - [Example 2: Per-Bundle Response Helpers](#example-2-per-bundle-response-helpers)
   - [Important Notes](#important-notes)
@@ -1692,7 +1698,7 @@ Both `SSRServer` and `APIServer` automatically initialize `request.requestContex
 - Code written for SSR can run on a standalone API server with consistent behavior
 - Plugins and middleware can safely write to `requestContext` without initialization checks
 
-The important boundary is that each server owns its own HTTP request lifecycle, while SSR data loaders can bridge context between them. `APIServer` has `request.requestContext` so API-side plugins and handlers can use the same convention as SSR. Values that must affect the initial HTML should be seeded on the SSR server first. API-side values can flow back into SSR only through the data loader bridge described in [Separated SSR/API Architecture](#separated-ssrapi-architecture).
+The important boundary is that each server owns its own HTTP request lifecycle, while SSR data loaders can bridge context between them. `APIServer` has `request.requestContext` so API-side plugins and handlers can use the same convention as SSR. Values that must affect the initial HTML should be seeded on the SSR server first. API-side values can flow back into SSR only through the data loader bridge described in [Customizing Server-Side Page Data Requests](#customizing-server-side-page-data-requests).
 
 **How It Works:**
 
@@ -2218,6 +2224,14 @@ server.registerBuiltApp(bundles.key('marketing'), './build-marketing');
 
 Pick whichever fits. The local union costs nothing and is enough for a single gate in a single file. The helper earns its import once you have more than a couple of gates, an array check, or a registration call you want covered.
 
+The helper's methods are below. `is()` and `key()` cover the gate and the registration call, `match()` picks a value per bundle, and `dispatch()` and `matchFn()` pick a function.
+
+##### `is()`: Checking One Bundle or Several
+
+Shown above. It takes one key or an array, and it is a type predicate, so a passing check narrows `request.activeSSRApp` to what was checked for. That is useful when the code after the gate branches on the bundle again rather than just proceeding.
+
+##### `match()`: Picking a Value per Bundle
+
 Once more than one bundle needs its own copy, title, or configuration, `bundles.match()` says it in one expression instead of a chain of `is()` calls:
 
 ```ts
@@ -2232,14 +2246,93 @@ List only the bundles that differ, and a typo in a case key fails to compile the
 
 The fallback is required, and it is not there for convenience. `request.activeSSRApp` is a plain `string`, `'__default__'` is always reachable, and a list built from configuration widens the key union to `string`, so an exhaustive record is never provable and there is always a value this has to return. In practice the fallback is where the server's own bundle lands, since anything not listed goes there.
 
-Details worth knowing about the helper:
+It throws if a case names a bundle that was never declared, which is the check that still holds once the key union has widened to `string`. Without it a typo'd case would take the fallback forever without saying anything.
+
+##### `dispatch()`: One Handler That Routes per Bundle
+
+When the bundles need to run different _logic_ rather than pick a different value, `bundles.dispatch()` builds one handler that routes to a per-bundle handler when it is called:
+
+```ts
+server.pageDataHandler.register(
+  'not-found',
+  bundles.dispatch(
+    { ['__default__']: unusedSubdomainNotFound },
+    genericNotFound,
+  ),
+);
+```
+
+The active bundle is read from the first argument at call time, so one registration serves every bundle and each request picks its own branch. Every argument it is called with is forwarded unchanged to the branch it picks. What comes back is an ordinary function with the branches' own signature, so it drops straight into `register()` with no wrapper and no argument list to forward by hand. Written out by hand the same thing is an `is()` check plus that forwarding:
+
+```ts
+server.pageDataHandler.register('not-found', (request, reply, params) => {
+  if (bundles.is(request, '__default__')) {
+    return unusedSubdomainNotFound(request, reply, params);
+  }
+
+  return genericNotFound(request, reply, params);
+});
+```
+
+The handler type's own generics survive, so a `PageDataHandler<DashboardData>` in the cases gives a `PageDataHandler<DashboardData>` back and a branch typed for other data fails to compile.
+
+It makes the undeclared-key check when the handler is built rather than per request, since the cases are known a phase before any traffic arrives. `matchFn()` cannot, being handed the request and the cases together.
+
+The cases are read once, when the handler is built, and copied at that point. Editing the object you passed afterwards changes nothing about the handler you got back. That is what keeps the build-time check meaningful, since a key added later would otherwise route requests without ever having been checked. Build a second handler if the branches really need to differ. `matchFn()` takes its cases per call, so it has no such snapshot.
+
+##### `matchFn()`: Picking a Function per Bundle
+
+The same dispatch for the cases where you already hold the request and want the function rather than its result, taking `(request, cases, fallback)` like `match()` does:
+
+```ts
+const load = bundles.matchFn(
+  request,
+  { marketing: loadMarketingPage, 'app-shell': loadShellPage },
+  loadDefaultPage,
+);
+
+const data = await load(params);
+```
+
+Both it and `dispatch()` take the signature from the fallback and check every case against it, so a branch whose parameters or return type disagree is reported against that branch. `match()` can carry functions too, and most branch sets work, since it infers a union of function types and TypeScript intersects their parameter lists. What it does not give you is a useful error. A branch whose parameter is narrower than the rest is accepted, and the mistake surfaces later at the call site as an intersection that names neither the branch nor the fallback.
+
+Reach for either only when the branches genuinely do different work. When they differ just in the data they feed to a shared call, `match()` is the smaller tool and reads better:
+
+```ts
+const notFound = bundles.match(
+  request,
+  {
+    ['__default__']: {
+      errorCode: 'unused_subdomain',
+      errorMessage: "This address isn't in use.",
+    },
+  },
+  {
+    errorCode: 'not_found',
+    errorMessage: 'The page you are looking for does not exist.',
+  },
+);
+
+return params.APIResponseHelpers.createPageErrorResponse({
+  request,
+  statusCode: 404,
+  ...notFound,
+  pageMetadata: { title: 'Page Not Found', description: notFound.errorMessage },
+});
+```
+
+##### `key()`: Checking a Registration Key
+
+Shown above, applied to the key you pass to `registerBuiltApp()` / `registerHMRApp()`, which otherwise takes an unchecked string. It checks at runtime as well as in the types, because the types can stop being a check. `defineAppBundles(...names)` spread from a `string[]` widens the key union to `string`, and then every literal type-checks.
+
+##### Details Worth Knowing
 
 - `bundles.keys` is the declared list in order, handy for registering in a loop or for an error message that has to name what was expected.
-- `is()` is a type predicate, so a passing check narrows `request.activeSSRApp` to what was checked for. Useful when the code after the gate branches on the bundle again.
-- `'__default__'` is accepted by `is()` and as a `match()` case, since the server's own bundle is selectable, and rejected by `key()`, since a register call throws on it. As a `match()` case it needs a computed key (`{ ['__default__']: … }`) under a `naming-convention` lint rule of the kind the starter templates ship, which rejects it as a plain property name. Usually the fallback covers that bundle and the case is unnecessary.
-- `match()` throws if a case names a bundle that was never declared, which is the check that still holds once the key union has widened to `string`. Without it a typo'd case would take the fallback forever without saying anything.
+- `'__default__'` is accepted by `is()` and as a case in the other three, since the server's own bundle is selectable, and rejected by `key()`, since a register call throws on it. As a case it needs a computed key (`{ ['__default__']: … }`) under a `naming-convention` lint rule of the kind the starter templates ship, which rejects it as a plain property name. Usually the fallback covers that bundle and the case is unnecessary.
+- `match()` treats a case present with an `undefined` value as a case and returns that `undefined`, the way a `switch` case works. `matchFn()` and `dispatch()` throw on it instead, naming the bundle, because their return type promises something callable and handing back a non-function would surface as "x is not a function" somewhere else entirely.
 - The declaration is refused at startup for anything the server would refuse or rewrite at registration: an empty or whitespace-only key, surrounding whitespace, a path separator, the reserved key, or a duplicate. A declaration that type-checks but could never match is worse than no declaration.
-- `key()` checks at runtime as well as in the types, because the types can stop being a check. `defineAppBundles(...names)` spread from a `string[]` widens the key union to `string`, and then every literal type-checks.
+- All of these need an active app bundle, so they work during SSR and throw a `TypeError` on a standalone `APIServer`, which registers no bundles and never selects one. Gate on the host or a header there instead.
+- They take any request carrying the bundle decoration, exported as `AppBundleRequest`, rather than a `FastifyRequest` specifically. That matters in a `notFoundHandler`, which receives a `NotFoundRequest`: it is a `FastifyRequest` with three fields removed, so it is not assignable to one, and a helper demanding `FastifyRequest` would need a cast at every gate. `is()` narrows whichever request type it was given.
 - It is an ordinary exported value, not a global type declaration, so two apps in one repo keep their own lists. Typing `activeSSRApp` itself would mean augmenting Fastify's `FastifyRequest`, which is global: one list per TypeScript program, shared by everything compiled together.
 
 #### Example 1: Gating a Handler on the Active App Bundle
@@ -2562,7 +2655,7 @@ const server = serveAPI({
 });
 ```
 
-This is the same signature used by SSR server's `APIHandling` options (see [Options (shared)](#options-shared) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `params.APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `params.APIResponseHelpers.createAPIErrorResponse`).
+This is the same signature used by SSR server's `APIHandling` options (see [Shared Server Configuration](#shared-server-configuration) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `params.APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `params.APIResponseHelpers.createAPIErrorResponse`).
 
 **Convention: stack traces in development** When writing custom JSON error handlers, include `errorDetails: isDevelopment ? { stack: error.stack } : undefined` so that stack traces appear in development error responses. This matches the convention used by the built-in page data loader and the default error handler. Components like `GenericError` in the SSR demo look for `error.details.stack` to display stack traces during development. See [Error Handling - Error Responses with Stack Trace](./error-handling.md#5-error-responses-with-stack-trace-development-only) for more details.
 

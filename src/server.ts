@@ -87,7 +87,7 @@ export type { Trigger404Signal } from './lib/internal/trigger-404';
 // request itself would mean a Fastify module augmentation, which is global, so
 // every app compiled together would share one list.
 export { defineAppBundles } from './lib/internal/app-bundles';
-export type { AppBundles } from './lib/internal/app-bundles';
+export type { AppBundles, AppBundleRequest } from './lib/internal/app-bundles';
 export type {
   WebSocketHandlerParams,
   WebSocketPreValidationResult,
