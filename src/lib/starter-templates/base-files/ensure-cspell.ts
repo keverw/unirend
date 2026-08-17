@@ -31,10 +31,10 @@ const defaultWords = [
   'eslintcache',
   'extensionless',
   'firsttris',
-  'Gruntfuggly',
   'jestrunner',
   'jmbeach',
   'Lifecycleion',
+  'Pythoner',
   'treemap',
   'Unirend',
 ];
