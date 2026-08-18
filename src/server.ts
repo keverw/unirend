@@ -86,7 +86,13 @@ export type { Trigger404Signal } from './lib/internal/trigger-404';
 // compile error. A value rather than a type declaration on purpose — typing the
 // request itself would mean a Fastify module augmentation, which is global, so
 // every app compiled together would share one list.
-export { defineAppBundles } from './lib/internal/app-bundles';
+export {
+  defineAppBundles,
+  // The key the server's own app bundle is selectable under. Exported so a
+  // comparison written without defineAppBundles() has a checked constant to
+  // compare against rather than a hardcoded '__default__' string literal.
+  DEFAULT_APP_BUNDLE_KEY,
+} from './lib/internal/app-bundles';
 export type { AppBundles, AppBundleRequest } from './lib/internal/app-bundles';
 export type {
   WebSocketHandlerParams,

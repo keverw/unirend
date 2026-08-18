@@ -40,7 +40,7 @@ import {
   serveSSRBuilt,
   UnirendLifecycleionLoggerAdaptor,
 } from 'unirend/server';
-import type { SSRServer } from 'unirend/server';
+import type { ServeSSRWithHMROptions, SSRServer } from 'unirend/server';
 import { loadBuildInfo } from 'unirend/build-info';
 import { cookies } from 'unirend/plugins';
 import path from 'path';
@@ -157,6 +157,14 @@ export class SSRServerComponent extends BaseComponent {
           // — including 404s — get it consistently.
           // See: https://github.com/keverw/unirend/blob/main/docs/api-envelope-structure.md
           // See: https://github.com/keverw/unirend/blob/main/docs/data-loaders.md
+          //
+          // Uncommenting this? Name the subclass in the \`satisfies\` at the end
+          // of this object as well, as
+          // \`ServeSSRWithHMROptions<typeof YourCustomAPIResponseHelpers>\`, or
+          // the callbacks below get \`params.APIResponseHelpers\` typed as the
+          // base class and your own methods are not visible on it. Naming it
+          // there also makes this line required, so the annotation and the
+          // class the server actually installs cannot drift apart.
           // APIResponseHelpersClass: YourCustomAPIResponseHelpers,
           //
           // Safe-to-share config injected into every page. Deep-cloned and deep-frozen per request,
@@ -257,7 +265,22 @@ export class SSRServerComponent extends BaseComponent {
           //     });
           //   },
           // },
-        };
+          //
+          // \`satisfies\` is what gives the commented-out callbacks above their
+          // parameter types. This object is spread into the call below, so
+          // without it the literal infers on its own and every callback
+          // parameter is an implicit \`any\` — a type-check failure the moment
+          // you uncomment one. It also catches a misspelled option name, which
+          // would otherwise vanish silently into the spread.
+          //
+          // Every option checked here is optional, so the per-mode ones passed
+          // at the two call sites below (serverEntry, template, publicFiles,
+          // and the HMR viteConfig path) are simply absent rather than
+          // missing. Deliberately not wrapped in \`Partial\`: that would also
+          // make \`APIResponseHelpersClass\` optional once you name a subclass
+          // in the type argument above, which is the one thing this is meant
+          // to keep honest.
+        } satisfies ServeSSRWithHMROptions;
 
         // This level controls the adapter's gate — what Fastify passes to the Lifecycleion
         // logger. Set to 'debug' so everything gets through and the ConsoleSink's minLevel

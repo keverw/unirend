@@ -42,8 +42,13 @@ import type { FastifyRequest } from 'fastify';
  *
  * Selectable like any other bundle, but never registered: `registerBuiltApp()`
  * and `registerHMRApp()` add *additional* bundles and throw on this key.
+ *
+ * Exported so an app that compares against the primary bundle without going
+ * through {@link defineAppBundles} has something checked to compare against.
+ * Hardcoding the `'__default__'` string in that comparison is unchecked, and a
+ * typo in it is the silently-dead gate this module exists to prevent.
  */
-const DEFAULT_APP_BUNDLE_KEY = '__default__';
+export const DEFAULT_APP_BUNDLE_KEY = '__default__';
 
 /**
  * The part of a request these helpers actually read.
@@ -299,6 +304,24 @@ type BundleKeyOrDefault<TKey extends string> =
   TKey | typeof DEFAULT_APP_BUNDLE_KEY;
 
 /**
+ * The tail of an undeclared-key error, naming what was declared.
+ *
+ * An empty declaration is legal — an app that has not built its other bundles
+ * yet registers none — and "Declared keys: ." would read as a bug in the
+ * message rather than as the answer to why the key was refused. Kept neutral
+ * about what to do next, because both `key()` and the gates report through
+ * here and they are reached at opposite ends: `key()` at the register call,
+ * the gates on a request.
+ */
+function describeDeclared(declaredKeys: readonly string[]): string {
+  if (declaredKeys.length === 0) {
+    return 'Nothing has been declared yet, so add this key to defineAppBundles() alongside the bundle that registers it.';
+  }
+
+  return `Declared keys: ${declaredKeys.join(', ')}.`;
+}
+
+/**
  * Refuses a key that was never declared.
  *
  * The types stop being a check once the list came from configuration, since
@@ -320,7 +343,7 @@ function assertDeclaredKey(
   }
 
   throw new Error(
-    `App bundle key "${key}" was passed to ${method}() but was not declared in defineAppBundles(). Declared keys: ${declaredKeys.join(', ')}.`,
+    `App bundle key "${key}" was passed to ${method}() but was not declared in defineAppBundles(). ${describeDeclared(declaredKeys)}`,
   );
 }
 
@@ -400,19 +423,62 @@ function readActiveBundle(request: AppBundleRequest): string {
  *
  * See the module docs for why this is a value rather than a type declaration.
  *
- * @param keys - The bundle keys, excluding `'__default__'`
- * @throws {Error} If no keys are given, if a key is empty or whitespace-only,
- *   or if `'__default__'` is passed (it is not a bundle you declare)
+ * **An empty declaration is legal, so this can be adopted before there is a
+ * second bundle to name.** The app a server is created with is passed to
+ * `serveSSRWithHMR()` / `serveSSRBuilt()`, not to `registerBuiltApp()` /
+ * `registerHMRApp()`, and registration is what assigns a key — so that app
+ * never had one of your choosing, and is selectable as `'__default__'`.
+ * Serving only that app, before any others are registered, is a normal state
+ * and is where every app starts. A declared key becomes real only when that
+ * same key is passed to `registerBuiltApp()` / `registerHMRApp()`, and the
+ * serve-time app goes through neither, so inventing a name for it — declaring
+ * `defineAppBundles('marketing')` with no matching `registerBuiltApp()` call —
+ * type-checks and gates nothing: nothing ever selects `'marketing'`, so
+ * `is(request, 'marketing')` is false on every request while that app keeps
+ * arriving as `'__default__'`. That is the silently-dead gate this whole
+ * module exists to prevent, reintroduced by the declaration itself. Declare nothing instead and gate on `'__default__'`,
+ * then add each key once its bundle is actually registered, which leaves the
+ * gates already written unchanged. With no keys, `'__default__'` is the only
+ * key that type-checks, and `is()` and the three dispatchers all select it.
+ * `key()` cannot be called at all, since `TKey` is `never` and there is no key it
+ * could hand back, which is right while nothing is registered. It throws at
+ * runtime instead on the widened form, where the list came from configuration
+ * and `TKey` is `string`.
+ *
+ * ```ts
+ * // Nothing registered yet: the primary app is the only bundle so far.
+ * export const bundles = defineAppBundles();
+ *
+ * if (!bundles.is(request, '__default__')) {
+ *   return request.trigger404();
+ * }
+ *
+ * // Later, once the second bundle is built, it joins the declaration and the
+ * // gate above keeps working unchanged.
+ * export const bundles = defineAppBundles('app-shell');
+ * ```
+ *
+ * Note that `defineAppBundles(...names)` spread from a `string[]` that is
+ * empty at runtime is therefore accepted rather than refused here. Nothing
+ * breaks silently when it happens: `key()` throws on every key it is given,
+ * and `is()`, `match()`, `matchFn()`, and `dispatch()` throw on any key other
+ * than `'__default__'`, so the empty list surfaces at the first real use with
+ * a message naming the key.
+ *
+ * @param keys - The bundle keys, excluding `'__default__'`. May be empty.
+ * @throws {Error} If a key is empty or whitespace-only, or if `'__default__'`
+ *   is passed (it is not a bundle you declare)
  */
-export function defineAppBundles<TKey extends string>(
+export function defineAppBundles<TKey extends string = never>(
+  // The `= never` default is what makes the empty declaration type correctly.
+  // Inference has no candidates when there are no arguments, so without it
+  // `TKey` would fall back to its `string` constraint and every key would
+  // type-check against a list that declares nothing — the opposite of the
+  // point. `never` makes `BundleKeyOrDefault<TKey>` exactly `'__default__'`,
+  // so that is the only case that compiles. A call with arguments infers from
+  // them as before and never reaches the default.
   ...keys: TKey[]
 ): AppBundles<TKey> {
-  if (keys.length === 0) {
-    throw new Error(
-      'defineAppBundles() needs at least one app bundle key. Pass the keys this app registers, e.g. defineAppBundles("marketing", "app-shell").',
-    );
-  }
-
   // These mirror what the server itself does with a key at registration. A
   // declaration the server would refuse or rewrite is worse than useless here:
   // it type-checks, so it reads as protection, while the comparison it produces
@@ -603,7 +669,7 @@ export function defineAppBundles<TKey extends string>(
 
       if (!declared.has(requestedKey)) {
         throw new Error(
-          `App bundle key "${requestedKey}" was not declared in defineAppBundles(). Declared keys: ${declaredKeys.join(', ')}.`,
+          `App bundle key "${requestedKey}" was not declared in defineAppBundles(). ${describeDeclared(declaredKeys)}`,
         );
       }
 

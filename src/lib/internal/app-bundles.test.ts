@@ -355,6 +355,34 @@ function _narrowsAfterAnEarlyReturn(
 
 void [_narrowsInsideTheGuard, _narrowsAfterAnEarlyReturn];
 
+// An empty declaration types the way it has to for a single-app server to be
+// able to use it: '__default__' is the only case that compiles, so a
+// real-looking key that could never be active stops type-checking.
+const _emptyBundles = defineAppBundles();
+
+function _emptyDeclarationAcceptsTheDefaultKey(
+  request: FastifyRequest,
+): '__default__' | null {
+  if (_emptyBundles.is(request, '__default__')) {
+    return request.activeSSRApp;
+  }
+
+  return null;
+}
+
+function _emptyDeclarationRefusesAnUndeclaredKey(request: FastifyRequest) {
+  // @ts-expect-error nothing is declared, so '__default__' is the only key
+  void _emptyBundles.is(request, 'marketing');
+
+  // @ts-expect-error the same for a case key, which is where a stray key hides
+  void _emptyBundles.match(request, { marketing: 'mk' }, 'fallback');
+}
+
+void [
+  _emptyDeclarationAcceptsTheDefaultKey,
+  _emptyDeclarationRefusesAnUndeclaredKey,
+];
+
 void _typeLevelChecks;
 
 // --- Runtime ----------------------------------------------------------------
@@ -383,10 +411,6 @@ describe('defineAppBundles()', () => {
 
   it('returns the key unchanged', () => {
     expect(bundles.key('marketing')).toBe('marketing');
-  });
-
-  it('throws when no keys are given', () => {
-    expect(() => defineAppBundles()).toThrow(/at least one app bundle key/);
   });
 
   it('throws on an empty or whitespace-only key', () => {
@@ -463,6 +487,125 @@ describe('defineAppBundles()', () => {
     // Declaring it would suggest it can be registered, and registering it
     // throws — so it is refused where the mistake is cheapest to see.
     expect(() => defineAppBundles('__default__')).toThrow(/__default__/);
+  });
+});
+
+describe('defineAppBundles() with no keys', () => {
+  // The declaration for an app that has not built its other bundles yet: it
+  // registers nothing, so it has no key to pass. The alternative — declaring
+  // the default bundle under an invented name — puts a case key that can never
+  // fire into the helper whose job is refusing exactly that, so the empty list
+  // is accepted and '__default__' carries the app until real keys join it.
+  const empty = defineAppBundles();
+
+  const defaultRequest = {
+    activeSSRApp: '__default__',
+  } as unknown as FastifyRequest;
+
+  it('exposes an empty key list', () => {
+    expect([...empty.keys]).toEqual([]);
+    expect(Object.isFrozen(empty.keys)).toBe(true);
+  });
+
+  it('selects the default bundle with is()', () => {
+    expect(empty.is(defaultRequest, '__default__')).toBe(true);
+  });
+
+  it('does not select the default bundle for another active bundle', () => {
+    const other = { activeSSRApp: 'marketing' } as unknown as FastifyRequest;
+
+    expect(empty.is(other, '__default__')).toBe(false);
+  });
+
+  it('selects the default bundle as a case in match()', () => {
+    expect(
+      empty.match(defaultRequest, { ['__default__']: 'primary' }, 'fallback'),
+    ).toBe('primary');
+  });
+
+  it('selects the default bundle as a case in dispatch()', () => {
+    const handler = empty.dispatch(
+      { ['__default__']: () => 'primary' },
+      () => 'fallback',
+    );
+
+    expect(handler(defaultRequest)).toBe('primary');
+  });
+
+  it('selects the default bundle as a case in matchFn()', () => {
+    const picked = empty.matchFn(
+      defaultRequest,
+      { ['__default__']: () => 'primary' },
+      () => 'fallback',
+    );
+
+    expect(picked()).toBe('primary');
+  });
+
+  it('still refuses an undeclared key, naming the empty declaration', () => {
+    // The message cannot fall back to "Declared keys: ." here, which would
+    // read as a broken message rather than as the reason the key was refused.
+    expect(() => empty.is(defaultRequest, 'marketing' as never)).toThrow(
+      /Nothing has been declared yet/,
+    );
+  });
+
+  it('refuses an undeclared case key eagerly from dispatch()', () => {
+    // The one check that still happens before a request arrives. It matters
+    // more now that the empty declaration is legal, since the zero-key throw
+    // that used to fire at module load is gone.
+    expect(() =>
+      empty.dispatch({ marketing: () => 'x' } as never, () => 'fallback'),
+    ).toThrow(/Nothing has been declared yet/);
+  });
+
+  it('still throws from key() on every key', () => {
+    // Correct when nothing is registered: there is no key to register, so
+    // there is no key this can hand back. Reaching the runtime throw needs a
+    // cast here, because TKey is `never` and key() cannot be called at all —
+    // see the widened case below for where this message is actually reachable.
+    expect(() => (empty.key as (key: string) => string)('marketing')).toThrow(
+      /Nothing has been declared yet/,
+    );
+
+    expect(() => (empty.key as (key: string) => string)('__default__')).toThrow(
+      /cannot be registered/,
+    );
+  });
+});
+
+describe('defineAppBundles() with a runtime-empty string[]', () => {
+  // The case the removed zero-key guard actually protected: a list built from
+  // configuration widens TKey to `string`, so every literal type-checks and
+  // the runtime checks are the only ones left. Nothing breaks silently, but
+  // it now surfaces at first use rather than at module load.
+  const names: string[] = [];
+  const widened = defineAppBundles(...names);
+
+  const defaultRequest = {
+    activeSSRApp: '__default__',
+  } as unknown as FastifyRequest;
+
+  it('declares no keys', () => {
+    expect([...widened.keys]).toEqual([]);
+  });
+
+  it('still selects the default bundle', () => {
+    expect(widened.is(defaultRequest, '__default__')).toBe(true);
+  });
+
+  it('throws on a key that type-checks but was never declared', () => {
+    // 'marketing' compiles here, unlike on the literal empty declaration,
+    // because TKey widened to `string`. The runtime check is what is left.
+    expect(() => widened.is(defaultRequest, 'marketing')).toThrow(
+      /Nothing has been declared yet/,
+    );
+  });
+
+  it('throws from key() without needing a cast', () => {
+    expect(() => widened.key('marketing')).toThrow(
+      /Nothing has been declared yet/,
+    );
   });
 });
 
