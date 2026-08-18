@@ -19,11 +19,56 @@ import type {
   SecurityHeadersPlugin,
 } from './plugins';
 import type {
+  FileFoundResult,
+  MinimalStatInfo,
+  StaticContentRouterOptions,
+  StaticContentWarnLoggerObject,
+} from './utils';
+import type {
+  APIClosingHandlerFn,
+  APIErrorHandlerFn,
+  APIErrorHandlerParams,
+  APINotFoundHandlerFn,
+  APINotFoundHandlerParams,
   APIRouteHandler,
   AppBundles,
+  FastifyServerOptions,
+  FastifyTrustProxyFunction,
+  FileUploadsConfig,
+  HTMLPageType,
+  HTTPMethod,
   PageDataHandler,
+  PageDataHandlerParams,
+  PageDataNotFoundContext,
+  PageDataRequestContext,
+  PageDataRequestOptions,
+  RegisterBuiltAppOptions,
+  RegisterHMRAppOptions,
+  RenderErrorResult,
+  RenderPageResult,
+  RenderResponseResult,
+  RenderType,
+  ResolvePageDataRequestOptions,
+  ResponseCompressionOptions,
+  ResponseTimeHeaderOptions,
+  RouteHandler,
+  SafeRouteOptions,
+  SPAPageType,
+  SSGLogger,
+  SSGPageStatus,
+  SSGPageType,
+  SSGPagesReport,
+  UnirendLoggerFunction,
+  WebSocketOptions,
   NotFoundRequest,
+  SplitClosingHandler,
+  SplitErrorHandler,
+  SplitNotFoundHandler,
   Trigger404Signal,
+  WebClosingHandlerFn,
+  WebErrorHandlerFn,
+  WebNotFoundHandlerFn,
+  WebResponse,
 } from './server';
 import { defineAppBundles } from './server';
 
@@ -68,6 +113,73 @@ type PublicAppBundlesTypeSurface = {
 const publicAppBundlesTypeSurface: PublicAppBundlesTypeSurface = {
   bundles: defineAppBundles('marketing', 'app-shell'),
 };
+
+// A handler written as a named function, or in a file of its own, has to name
+// what it receives. The request type alone is not enough: the `params`
+// argument carries the configured `APIResponseHelpers` class and, for a
+// not-found handler, the page data context.
+type PublicHandlerTypeSurface = {
+  errorParams: APIErrorHandlerParams;
+  apiError: APIErrorHandlerFn;
+  webError: WebErrorHandlerFn;
+  splitError: SplitErrorHandler;
+  notFoundParams: APINotFoundHandlerParams;
+  pageDataNotFound: PageDataNotFoundContext;
+  apiNotFound: APINotFoundHandlerFn;
+  webNotFound: WebNotFoundHandlerFn;
+  splitNotFound: SplitNotFoundHandler;
+  apiClosing: APIClosingHandlerFn;
+  webClosing: WebClosingHandlerFn;
+  splitClosing: SplitClosingHandler;
+  webResponse: WebResponse;
+};
+
+const publicHandlerTypeSurface: PublicHandlerTypeSurface | null = null;
+
+// The option and result types that were reachable from an exported one, as a
+// union member, an options field, or a callback the caller writes, but had no
+// exported name of their own.
+type PublicServerTypeSurface = {
+  pageDataHandlerParams: PageDataHandlerParams;
+  routeHandler: RouteHandler;
+  safeRouteOptions: SafeRouteOptions;
+  httpMethod: HTTPMethod;
+  renderType: RenderType;
+  renderPage: RenderPageResult;
+  renderResponse: RenderResponseResult;
+  renderError: RenderErrorResult;
+  ssgPage: SSGPageType;
+  spaPage: SPAPageType;
+  htmlPage: HTMLPageType;
+  ssgPageStatus: SSGPageStatus;
+  ssgPagesReport: SSGPagesReport;
+  ssgLogger: SSGLogger;
+  registerHMRApp: RegisterHMRAppOptions;
+  registerBuiltApp: RegisterBuiltAppOptions;
+  pageDataRequestContext: PageDataRequestContext;
+  pageDataRequestOptions: PageDataRequestOptions;
+  resolvePageDataRequestOptions: ResolvePageDataRequestOptions;
+  webSocketOptions: WebSocketOptions;
+  fileUploads: FileUploadsConfig;
+  responseCompression: ResponseCompressionOptions;
+  responseTimeHeader: ResponseTimeHeaderOptions;
+  fastifyServerOptions: FastifyServerOptions;
+  trustProxy: FastifyTrustProxyFunction;
+  loggerFunction: UnirendLoggerFunction;
+};
+
+const publicServerTypeSurface: PublicServerTypeSurface | null = null;
+
+// `unirend/utils`: the stat shape a found file carries, plus the two arguments
+// the `StaticContentCache` constructor takes.
+type PublicUtilsTypeSurface = {
+  stat: MinimalStatInfo;
+  foundFile: FileFoundResult;
+  routerOptions: StaticContentRouterOptions;
+  warnLogger: StaticContentWarnLoggerObject;
+};
+
+const publicUtilsTypeSurface: PublicUtilsTypeSurface | null = null;
 
 type PackageExport = {
   types: string;
@@ -142,6 +254,15 @@ describe('package exports', () => {
 
   it('exports the trigger-404 signal type alongside the handler types', () => {
     expect(publicTrigger404TypeSurface).toBeNull();
+  });
+
+  it('exports the error, not found, and closing handler types', () => {
+    expect(publicHandlerTypeSurface).toBeNull();
+  });
+
+  it('exports the option and result types reachable from the public API', () => {
+    expect(publicServerTypeSurface).toBeNull();
+    expect(publicUtilsTypeSurface).toBeNull();
   });
 
   it('exports defineAppBundles as a value, with its type', () => {

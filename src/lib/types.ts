@@ -80,7 +80,10 @@ type RequireHelpersClassWhenCustom<H extends APIResponseHelpersClass> =
   IsBaseHelpersClass<H> extends true
     ? { APIResponseHelpersClass?: H }
     : { APIResponseHelpersClass: H };
-type FastifyTrustProxyFunction = (address: string, hop: number) => boolean;
+export type FastifyTrustProxyFunction = (
+  address: string,
+  hop: number,
+) => boolean;
 
 export interface APIServerTCPListenOptions {
   /** TCP port to bind to (default: 3000). */

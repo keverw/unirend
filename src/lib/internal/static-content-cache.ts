@@ -27,9 +27,11 @@ import {
 } from './response-compression';
 
 /**
- * Minimal stat info interface with only the properties we actually use
+ * Minimal stat info interface with only the properties we actually use.
+ *
+ * Public: carried on a `FileFoundResult` and exported from `unirend/utils`.
  */
-interface MinimalStatInfo {
+export interface MinimalStatInfo {
   isFile: boolean;
   size: number;
   mtime: Date;
@@ -118,7 +120,8 @@ export type FileContent =
     };
 
 /**
- * Internal logger object used by static content helpers.
+ * Logger object accepted by the `StaticContentCache` constructor and used by
+ * the static content helpers.
  */
 export type StaticContentWarnLoggerObject = {
   warn: (obj: object, msg: string) => void;
