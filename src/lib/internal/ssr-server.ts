@@ -20,6 +20,7 @@ import { HTTPClient } from 'lifecycleion/http-client';
 import { NodeAdapter } from 'lifecycleion/http-client-node';
 import { AccessLogPlugin } from './access-log-plugin';
 import { deepFreeze } from './utils';
+import { DEFAULT_APP_BUNDLE_KEY } from './app-bundles';
 import {
   readHTMLFile,
   checkAndLoadManifest,
@@ -356,7 +357,7 @@ export class SSRServer<
             getStaticNotFoundPage: config.options.getStaticNotFoundPage,
           };
 
-    this.apps.set('__default__', defaultApp);
+    this.apps.set(DEFAULT_APP_BUNDLE_KEY, defaultApp);
 
     // Set helpers class (custom or default)
     // Cast covers the default branch: without an explicit class, `H` stays the
@@ -792,7 +793,7 @@ export class SSRServer<
         getter(this: FastifyRequest) {
           return (
             (this as SSRRequestInternalState).activeSSRAppInternal?.appKey ||
-            '__default__'
+            DEFAULT_APP_BUNDLE_KEY
           );
         },
         setter() {
@@ -928,7 +929,7 @@ export class SSRServer<
 
         // Seed the request with the default app through the same code path that
         // middleware uses for multi-app routing.
-        applyActiveApp('__default__');
+        applyActiveApp(DEFAULT_APP_BUNDLE_KEY);
       });
 
       // Set request.requestID once per request, before access logging and
@@ -996,9 +997,9 @@ export class SSRServer<
 
           // Get active app config for error handling. setActiveSSRApp validates
           // app keys, so the fallback is defensive for unexpected internal state.
-          const appKey = request.activeSSRApp || '__default__';
+          const appKey = request.activeSSRApp || DEFAULT_APP_BUNDLE_KEY;
           const appConfig =
-            this.apps.get(appKey) || this.apps.get('__default__');
+            this.apps.get(appKey) || this.apps.get(DEFAULT_APP_BUNDLE_KEY);
 
           if (!appConfig) {
             // This should never happen, but handle gracefully
@@ -1213,7 +1214,7 @@ export class SSRServer<
           // Vite's Connect-style middleware is wrapped in a Promise to integrate
           // with Fastify's async hook chain.
           this.fastifyInstance.addHook('onRequest', async (request, reply) => {
-            const appKey = request.activeSSRApp || '__default__';
+            const appKey = request.activeSSRApp || DEFAULT_APP_BUNDLE_KEY;
             const appConfig = this.apps.get(appKey);
 
             if (
@@ -1312,7 +1313,9 @@ export class SSRServer<
             );
 
             const appLabel =
-              appKey === '__default__' ? 'the default app' : `app "${appKey}"`;
+              appKey === DEFAULT_APP_BUNDLE_KEY
+                ? 'the default app'
+                : `app "${appKey}"`;
 
             const publicPaths: NormalizedPublicPaths = {
               publicFiles: appConfig.publicFiles,
@@ -1377,7 +1380,7 @@ export class SSRServer<
         // Register routing hook if we have any caches
         if (staticContentCaches.size > 0) {
           this.fastifyInstance.addHook('onRequest', async (request, reply) => {
-            const appKey = request.activeSSRApp || '__default__';
+            const appKey = request.activeSSRApp || DEFAULT_APP_BUNDLE_KEY;
             const cache = staticContentCaches.get(appKey);
 
             if (cache) {
@@ -1401,7 +1404,7 @@ export class SSRServer<
               // setActiveSSRApp validates app keys, so the default fallback is
               // defensive for unexpected internal state, matching 500 errors.
               const appConfig =
-                this.apps.get(appKey) || this.apps.get('__default__');
+                this.apps.get(appKey) || this.apps.get(DEFAULT_APP_BUNDLE_KEY);
 
               // Only an opt-in handler intercepts a mapped target that is
               // missing or not a regular file, or OS junk rejected from a
@@ -1745,9 +1748,9 @@ export class SSRServer<
       throw new Error('App key cannot be empty or whitespace-only');
     }
 
-    if (appKey === '__default__') {
+    if (appKey === DEFAULT_APP_BUNDLE_KEY) {
       throw new Error(
-        'Cannot register app with reserved key "__default__". This key is used for the initial app.',
+        `Cannot register app with reserved key "${DEFAULT_APP_BUNDLE_KEY}". This key is used for the initial app.`,
       );
     }
 
@@ -2344,7 +2347,7 @@ export class SSRServer<
     const { isUnmatchedNonReadMethod = false, isForcedNotFound = false } =
       options;
     // Get active app based on request.activeSSRApp (defaults to '__default__')
-    const appKey = request.activeSSRApp || '__default__';
+    const appKey = request.activeSSRApp || DEFAULT_APP_BUNDLE_KEY;
     const appConfig = this.apps.get(appKey);
 
     if (!appConfig) {
@@ -2859,9 +2862,9 @@ export class SSRServer<
       this.fastifyInstance?.log.warn('No response was sent, sending 500 error');
 
       // Re-fetch appConfig for safety check (should always exist, but be defensive)
-      const safetyAppKey = request.activeSSRApp || '__default__';
+      const safetyAppKey = request.activeSSRApp || DEFAULT_APP_BUNDLE_KEY;
       const fallbackAppConfig =
-        this.apps.get(safetyAppKey) || this.apps.get('__default__');
+        this.apps.get(safetyAppKey) || this.apps.get(DEFAULT_APP_BUNDLE_KEY);
 
       if (!fallbackAppConfig) {
         // Ultimate fallback if even default app is missing
