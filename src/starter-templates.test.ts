@@ -246,6 +246,20 @@ describe('createProject — PUBLIC_FILES/PUBLIC_FOLDERS stay in sync with public
     expect(ssrComponentSrc).toContain('publicFiles: PUBLIC_FILES');
     expect(ssrComponentSrc).toContain('publicFolders: PUBLIC_FOLDERS');
 
+    // The sharedConfig literal is spread into serveSSRWithHMR/serveSSRBuilt,
+    // so without this annotation the callbacks the template suggests infer no
+    // parameter types and uncommenting any of them fails the generated app's
+    // own type-check. The emitted file is never compiled by CI, so a
+    // regression here would only surface once someone scaffolds an app.
+    expect(ssrComponentSrc).toContain('} satisfies ServeSSRWithHMROptions;');
+    expect(ssrComponentSrc).toContain(
+      "import type { ServeSSRWithHMROptions, SSRServer } from 'unirend/server';",
+    );
+    // Not Partial: that would make APIResponseHelpersClass optional again for
+    // a user who names a subclass in the type argument, which is exactly the
+    // pairing the adjacent comment tells them to keep.
+    expect(ssrComponentSrc).not.toContain('satisfies Partial<');
+
     const ssgServeSrc = repoRoot['src/apps/site/serve.ts'] as string;
     expect(ssgServeSrc).toContain('PUBLIC_FILES.map');
     expect(ssgServeSrc).toContain('PUBLIC_FOLDERS.map');

@@ -70,7 +70,7 @@ import type {
   WebNotFoundHandlerFn,
   WebResponse,
 } from './server';
-import { defineAppBundles } from './server';
+import { defineAppBundles, DEFAULT_APP_BUNDLE_KEY } from './server';
 
 type PublicSecurityHeadersTypeSurface = {
   config: SecurityHeadersConfig;
@@ -270,5 +270,13 @@ describe('package exports', () => {
       'marketing',
       'app-shell',
     ]);
+  });
+
+  it('exports DEFAULT_APP_BUNDLE_KEY as a value', () => {
+    // Code that compares against the server's own bundle without going
+    // through defineAppBundles() needs this to avoid hardcoding the string,
+    // where a typo is a gate that silently never matches. It was declared in
+    // the published types but not exported.
+    expect(DEFAULT_APP_BUNDLE_KEY).toBe('__default__');
   });
 });
