@@ -95,6 +95,80 @@ export type {
 } from './lib/internal/web-socket-server-helpers';
 export type { APIEndpointConfig } from './lib/types';
 
+// The rest of the public option and result types. Each of these was already
+// reachable from an exported one, as a member of a union, a field of an options
+// object, or a callback a caller writes, but had no exported name, so naming it
+// meant restating its shape.
+export type {
+  // Members of the `RenderResult` union, for code that names one branch.
+  RenderType,
+  RenderPageResult,
+  RenderResponseResult,
+  RenderErrorResult,
+  // Members of the `PageTypeWanted` union `generateSSG()` takes. The shared
+  // base they extend is not exported: it carries no `type` discriminant, so
+  // nothing constructs or receives one, and a helper generic over all three
+  // wants `PageTypeWanted` itself.
+  SSGPageType,
+  SPAPageType,
+  HTMLPageType,
+  // The SSG report's inner shapes, and the logger interface `SSGConsoleLogger`
+  // implements, for supplying your own.
+  SSGPageStatus,
+  SSGPagesReport,
+  SSGLogger,
+  // The options `registerHMRApp()` and `registerBuiltApp()` take, for a helper
+  // that wraps either one.
+  RegisterHMRAppOptions,
+  RegisterBuiltAppOptions,
+  // The page data request options and the resolver callback form.
+  PageDataRequestContext,
+  PageDataRequestOptions,
+  ResolvePageDataRequestOptions,
+  // Server option sub-objects, for a configuration built in its own module.
+  WebSocketOptions,
+  FileUploadsConfig,
+  ResponseCompressionOptions,
+  ResponseTimeHeaderOptions,
+  // unirend's own passthrough options, not Fastify's type of the same name.
+  FastifyServerOptions,
+  FastifyTrustProxyFunction,
+  // The function form of the `logging` option, alongside the object form.
+  UnirendLoggerFunction,
+  // Raw plugin routes: the handler contract and the route options.
+  RouteHandler,
+  SafeRouteOptions,
+} from './lib/types';
+export type { HTTPMethod } from './lib/internal/api-routes-server-helpers';
+// The params a page data handler receives, alongside the handler type itself.
+export type { PageDataHandlerParams } from './lib/internal/data-loader-server-handler-helpers';
+
+// The error, not-found, and closing handler types, so a handler written as a
+// named function or in its own file can name what it receives. Only the
+// request type was exported before, which left the `params` argument
+// unnameable from outside and forced callers to restate a structural subset of
+// it. `APIResponseHelpersClass` is the generic bound, for code generic over
+// which helpers class a server was configured with.
+export type {
+  APIResponseHelpersClass,
+  WebResponse,
+  APIErrorHandlerParams,
+  APIErrorHandlerFn,
+  WebErrorHandlerFn,
+  SplitErrorHandler,
+  WebOnlySplitErrorHandler,
+  PageDataNotFoundContext,
+  APINotFoundHandlerParams,
+  APINotFoundHandlerFn,
+  WebNotFoundHandlerFn,
+  SplitNotFoundHandler,
+  WebOnlySplitNotFoundHandler,
+  APIClosingHandlerFn,
+  WebClosingHandlerFn,
+  SplitClosingHandler,
+  WebOnlySplitClosingHandler,
+} from './lib/types';
+
 // Server-safe functions
 export { serveSSRWithHMR, serveSSRBuilt } from './lib/ssr';
 export { generateSSG } from './lib/ssg';

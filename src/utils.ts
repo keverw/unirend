@@ -33,6 +33,16 @@ export type {
 
 export type { FolderConfig } from './lib/types';
 
+// The stat shape carried on a `FileFoundResult`, and the router options and
+// warn-logger object the `StaticContentCache` constructor takes. All three were
+// reachable but unnameable from here, which left a cache configured in its own
+// module unable to name what it was building.
+export type {
+  MinimalStatInfo,
+  StaticContentWarnLoggerObject,
+} from './lib/internal/static-content-cache';
+export type { StaticContentRouterOptions } from './lib/types';
+
 // =============================================================================
 // HTML Utilities
 // =============================================================================
@@ -58,4 +68,7 @@ export {
   assertSupportedRuntime,
 } from './lib/internal/utils';
 
+// The environment object those checks optionally accept is deliberately not
+// exported: it defaults to `globalThis`, so only a test stub ever passes one,
+// and a stub satisfies it structurally without naming it.
 export type { RuntimeName, RuntimeSupportInfo } from './lib/internal/utils';

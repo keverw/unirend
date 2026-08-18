@@ -2657,6 +2657,23 @@ const server = serveAPI({
 
 This is the same signature used by SSR server's `APIHandling` options (see [Shared Server Configuration](#shared-server-configuration) above), making it easy to share handler logic between SSR and standalone API servers. The `isPageData` parameter distinguishes page data loader requests from regular API requests. By checking `isPageData`, you can return a page error response (via `params.APIResponseHelpers.createPageErrorResponse` with metadata like page title/description) or a standard API error response (via `params.APIResponseHelpers.createAPIErrorResponse`).
 
+Written inline in the options object, every parameter is inferred and nothing needs importing. A handler written as a named function, or in a file of its own, has to name what it receives, so the handler types are exported from `unirend/server`: `APIErrorHandlerFn`, `APINotFoundHandlerFn`, `APIClosingHandlerFn`, and their `WebErrorHandlerFn`, `WebNotFoundHandlerFn`, `WebClosingHandlerFn` counterparts, the `SplitErrorHandler`, `SplitNotFoundHandler`, and `SplitClosingHandler` object forms, the `APIErrorHandlerParams` and `APINotFoundHandlerParams` params types, `PageDataNotFoundContext` for `params.pageData`, `NotFoundRequest`, and `WebResponse`. The API and split forms are generic over the helpers class, defaulting to unirend's own, so a server with a custom `APIResponseHelpersClass` writes `APINotFoundHandlerFn<typeof MyHelpers>` and gets `params.APIResponseHelpers` typed as that class. The `Web*` forms are not generic, since they return a `WebResponse` and receive no params object. Typing the whole function with `APINotFoundHandlerFn` is usually less to write than annotating each parameter:
+
+```typescript
+import type { APINotFoundHandlerFn } from 'unirend/server';
+import { MyAPIResponseHelpers } from './my-helpers';
+
+export const notFoundHandler: APINotFoundHandlerFn<
+  typeof MyAPIResponseHelpers
+> = (request, isPageData, params) =>
+  params.APIResponseHelpers.createAPIErrorResponse({
+    request,
+    statusCode: 404,
+    errorCode: 'not_found',
+    errorMessage: 'Not found',
+  });
+```
+
 **Convention: stack traces in development** When writing custom JSON error handlers, include `errorDetails: isDevelopment ? { stack: error.stack } : undefined` so that stack traces appear in development error responses. This matches the convention used by the built-in page data loader and the default error handler. Components like `GenericError` in the SSR demo look for `error.details.stack` to display stack traces during development. See [Error Handling - Error Responses with Stack Trace](./error-handling.md#5-error-responses-with-stack-trace-development-only) for more details.
 
 #### Web-Only (Plain Web Server)
