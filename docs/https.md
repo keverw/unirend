@@ -6,6 +6,7 @@ Both `SSRServer` (via `serveSSRWithHMR`/`serveSSRBuilt`) and `APIServer` (via `s
 
 - [Basic HTTPS Setup](#basic-https-setup)
 - [Behind a TLS-Terminating Proxy](#behind-a-tls-terminating-proxy)
+  - [Why a CDN Chain Needs Every Hop Named](#why-a-cdn-chain-needs-every-hop-named)
   - [Reading the Original vs. the Resolved Value](#reading-the-original-vs-the-resolved-value)
 - [HSTS](#hsts)
 - [SNI Callback for Multi-Tenant SaaS](#sni-callback-for-multi-tenant-saas)
@@ -73,13 +74,32 @@ Guidance on what to set it to:
 
 - **Origin reachable only from the proxy** (loopback bind, private network, container network): `trustProxy: true` is fine, because no untrusted peer can connect.
 - **Origin reachable from anywhere else**: name the proxy, for example `trustProxy: '10.0.0.0/8'` or its specific address. A bare `true` lets any client forge forwarded headers.
-- **A CDN in front of a proxy** is more than one hop, so use a hop count or the full trusted set.
+- **A CDN in front of a proxy** is more than one hop, so name the full trusted set, listing your own proxy alongside the CDN's published ranges. A hop count is not an option here, since Fastify no longer accepts one.
+
+### Why a CDN Chain Needs Every Hop Named
+
+Fastify resolves the client by walking the chain from the peer that actually connected outward, stopping at the first address it does not trust and reporting that one as `request.ip`. Naming only the proxy you talk to therefore stops the walk one hop too early.
+
+Take `client -> Cloudflare edge -> OpenResty -> app`. Cloudflare sets `x-forwarded-for` to the client, OpenResty appends the Cloudflare edge address, and OpenResty is what opens the connection, so Fastify walks `OpenResty`, then `203.0.113.7`, then `1.2.3.4`:
+
+| `trustProxy` | `request.ip` | `request.ips` |
+| --- | --- | --- |
+| `'127.0.0.1'` (OpenResty only) | `203.0.113.7`, the Cloudflare edge | `['127.0.0.1', '203.0.113.7']` |
+| `['127.0.0.1', '203.0.113.0/24']` | `1.2.3.4`, the real client | `['127.0.0.1', '203.0.113.7', '1.2.3.4']` |
+
+Trusting only the immediate peer does not fail loudly. It hands you the CDN's edge address, which looks like a perfectly ordinary public IP, so nothing errors and nothing looks wrong in a log. Every user behind that edge collapses into one apparent client, rate limiting keyed on it throttles strangers together, and abuse traffic is attributed to Cloudflare rather than to whoever sent it. Note the `request.ips` column as well: with only OpenResty trusted the real client is not merely demoted, it is absent from the chain entirely, so no amount of reading further along it recovers the address.
+
+This is also what the removed hop-count form was papering over. A `trustProxy: 2` meant "believe two hops" without ever checking who those hops were, which is exactly why it is gone. Naming the set trusts the same two hops and verifies each address on the way.
+
+Get the CDN's ranges from the provider rather than hardcoding what you observe, since they change. Cloudflare publishes [its IP ranges](https://www.cloudflare.com/ips/), and other CDNs offer an equivalent list.
+
+None of this discards the raw header. `request.headers['x-forwarded-for']` still holds the chain exactly as it arrived, whatever `trustProxy` resolves, which is what lets an access log record both what was claimed and what was believed. See [Reading the Original vs. the Resolved Value](#reading-the-original-vs-the-resolved-value) below, and [Client Identity](./client-identity.md) for the values Unirend layers on top of `request.ip`.
 
 ### Reading the Original vs. the Resolved Value
 
 Trusting a proxy does not rewrite anything. `request.headers` still holds exactly what arrived on the wire, and the resolved values are getters computed alongside it. Both views stay available, which is what you want when an access log or an audit trail should record what a client claimed as well as what was believed.
 
-Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, `X-Forwarded-Host: evil.com, real.example.com:8443`, and `X-Forwarded-Proto: https, http`:
+Given `trustProxy: true` and a request arriving from `127.0.0.1` carrying `Host: internal.upstream:8080`, `X-Forwarded-Host: evil.com, real.example.com:8443`, `X-Forwarded-Proto: https, http`, and `X-Forwarded-For: 9.9.9.9, 10.0.0.5`:
 
 | What you want | Read | Value in this example |
 | --- | --- | --- |
@@ -90,6 +110,7 @@ Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, 
 | Resolved port | `request.port` | `8443` |
 | Forwarded proto as sent | `request.headers['x-forwarded-proto']` | `https, http` |
 | Resolved protocol | `request.protocol` | `http` |
+| Forwarded client IP as sent | `request.headers['x-forwarded-for']` | `9.9.9.9, 10.0.0.5` |
 | Resolved client IP | `request.ip` | `9.9.9.9` |
 | Full IP chain | `request.ips` | `['127.0.0.1', '10.0.0.5', '9.9.9.9']` |
 

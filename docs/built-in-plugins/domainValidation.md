@@ -207,11 +207,11 @@ const server = serveSSRBuilt(buildDir, {
 
 ### What to Set `trustProxy` To
 
-`fastifyOptions.trustProxy` accepts a boolean, an address, a CIDR range, a list, a hop count, or a predicate function.
+`fastifyOptions.trustProxy` accepts a boolean, an address, a CIDR range, a list, or a predicate function. It does not accept a hop count. Fastify removed that form in 5.12, because trusting by position in the chain never checks the peer that actually connected, so a client reaching the origin directly could forge the headers.
 
 - **Origin reachable only from the proxy** (bound to loopback, a private network, or a container network): `trustProxy: true` is fine, because no untrusted peer can open a connection in the first place.
 - **Origin reachable from anywhere else**: name the proxy, for example `trustProxy: '10.0.0.0/8'` or its specific address. A bare `true` here is what lets any client forge `x-forwarded-host` and walk straight past domain validation.
-- **A CDN in front of a proxy** (Cloudflare to OpenResty to the app) is more than one hop, so you need a hop count or the full trusted set rather than a single address.
+- **A CDN in front of a proxy** (Cloudflare to OpenResty to the app) is more than one hop, so you need the full trusted set rather than a single address, listing OpenResty alongside Cloudflare's published ranges. Naming only OpenResty stops the resolution one hop short and leaves you with the CDN's edge address, which fails quietly because it still looks like an ordinary public IP. See [Why a CDN Chain Needs Every Hop Named](../https.md#why-a-cdn-chain-needs-every-hop-named) for a worked example.
 
 ### On Multi-Value Forwarded Headers
 
