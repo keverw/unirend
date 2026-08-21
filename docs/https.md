@@ -91,13 +91,15 @@ Trusting only the immediate peer does not fail loudly. It hands you the CDN's ed
 
 This is also what the removed hop-count form was papering over. A `trustProxy: 2` meant "believe two hops" without ever checking who those hops were, which is exactly why it is gone. Naming the set trusts the same two hops and verifies each address on the way.
 
-Get the CDN's ranges from the provider rather than hardcoding what you observe, since they change. Cloudflare publishes [its IP ranges](https://www.cloudflare.com/ips/), and other CDNs offer an equivalent list. For the values unirend layers on top of `request.ip`, see [Client Identity](./client-identity.md).
+Get the CDN's ranges from the provider rather than hardcoding what you observe, since they change. Cloudflare publishes [its IP ranges](https://www.cloudflare.com/ips/), and other CDNs offer an equivalent list.
+
+None of this discards the raw header. `request.headers['x-forwarded-for']` still holds the chain exactly as it arrived, whatever `trustProxy` resolves, which is what lets an access log record both what was claimed and what was believed. See [Reading the Original vs. the Resolved Value](#reading-the-original-vs-the-resolved-value) below, and [Client Identity](./client-identity.md) for the values Unirend layers on top of `request.ip`.
 
 ### Reading the Original vs. the Resolved Value
 
 Trusting a proxy does not rewrite anything. `request.headers` still holds exactly what arrived on the wire, and the resolved values are getters computed alongside it. Both views stay available, which is what you want when an access log or an audit trail should record what a client claimed as well as what was believed.
 
-Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, `X-Forwarded-Host: evil.com, real.example.com:8443`, and `X-Forwarded-Proto: https, http`:
+Given `trustProxy: true` and a request arriving from `127.0.0.1` carrying `Host: internal.upstream:8080`, `X-Forwarded-Host: evil.com, real.example.com:8443`, `X-Forwarded-Proto: https, http`, and `X-Forwarded-For: 9.9.9.9, 10.0.0.5`:
 
 | What you want | Read | Value in this example |
 | --- | --- | --- |
@@ -108,6 +110,7 @@ Given `trustProxy: true` and a request carrying `Host: internal.upstream:8080`, 
 | Resolved port | `request.port` | `8443` |
 | Forwarded proto as sent | `request.headers['x-forwarded-proto']` | `https, http` |
 | Resolved protocol | `request.protocol` | `http` |
+| Forwarded client IP as sent | `request.headers['x-forwarded-for']` | `9.9.9.9, 10.0.0.5` |
 | Resolved client IP | `request.ip` | `9.9.9.9` |
 | Full IP chain | `request.ips` | `['127.0.0.1', '10.0.0.5', '9.9.9.9']` |
 
