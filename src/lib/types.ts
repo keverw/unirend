@@ -761,11 +761,17 @@ export interface FastifyServerOptions {
    * Trust proxy headers (useful for deployment behind load balancers)
    * Passed directly to Fastify. Supports `true`, IP/CIDR strings like
    * `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, IP/CIDR lists like
-   * `['127.0.0.1', '10.0.0.0/8']`, hop counts, or a custom trust function
+   * `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function
    * `(address, hop) => boolean`.
+   *
+   * Hop-count-only trust — passing a plain number — is not supported, because
+   * it never validates the immediate peer, so a client that can reach the
+   * server directly can spoof `X-Forwarded-*`. Fastify removed it in 5.12.
+   * A custom function must validate `address` for the same reason; a check on
+   * `hop` alone carries the identical weakness.
    * @default false
    */
-  trustProxy?: boolean | string | string[] | number | FastifyTrustProxyFunction;
+  trustProxy?: boolean | string | string[] | FastifyTrustProxyFunction;
   /**
    * Maximum request body size in bytes for non-multipart requests (JSON, text,
    * URL-encoded forms). Does NOT apply to multipart file uploads — those are

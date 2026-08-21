@@ -73,7 +73,7 @@ Guidance on what to set it to:
 
 - **Origin reachable only from the proxy** (loopback bind, private network, container network): `trustProxy: true` is fine, because no untrusted peer can connect.
 - **Origin reachable from anywhere else**: name the proxy, for example `trustProxy: '10.0.0.0/8'` or its specific address. A bare `true` lets any client forge forwarded headers.
-- **A CDN in front of a proxy** is more than one hop, so use a hop count or the full trusted set.
+- **A CDN in front of a proxy** is more than one hop, so name the full trusted set, listing your own proxy alongside the CDN's published ranges. A hop count is not an option here, since Fastify no longer accepts one.
 
 ### Reading the Original vs. the Resolved Value
 

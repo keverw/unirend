@@ -244,7 +244,7 @@ The following options are accepted by both `SSRServer` and `APIServer`:
   - `loggerInstance` must satisfy Fastify's base logger interface (`info`, `error`, `debug`, `fatal`, `warn`, `trace`, `silent`, `level`) and support `child(bindings, options)`.
   - `logger` is Fastify's built-in logger option (boolean or pino options), for example `true` or `{ level: "info" }`.
   - `loggerInstance` is for passing an existing pino (or pino-compatible) logger instance.
-  - `trustProxy` is passed directly to Fastify. Common options are `true`, a trusted IP/CIDR string like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. Fastify also supports numeric hop counts.
+  - `trustProxy` is passed directly to Fastify. Common options are `true`, a trusted IP/CIDR string like `'127.0.0.1'` or `'127.0.0.1,192.168.1.1/24'`, a trusted IP/CIDR list like `['127.0.0.1', '10.0.0.0/8']`, or a custom trust function with signature `(address: string, hop: number) => boolean`. A plain number is not accepted. Fastify removed hop-count-only trust in 5.12, because it never validates the peer that actually connected.
   - `bodyLimit` - maximum request body size in bytes for non-multipart requests (JSON, text, URL-encoded forms). Default: `1048576` (1 MB). Rejected with `413` when exceeded. Does **not** apply to multipart file uploads - those are handled by the multipart plugin and the required per-route `processFileUpload({ maxSizePerFile })` setting. `fileUploads.limits.fileSize` configures the server-level multipart parser default, which `maxSizePerFile` overrides for that upload handler.
     - **Request body parsing note:** JSON (`application/json`) and URL-encoded forms (`application/x-www-form-urlencoded`) are both parsed automatically - both result in `request.body` as a plain object. Use `request.headers['content-type']` to distinguish them if needed. Multipart file uploads are handled separately via `fileUploads`.
   - `keepAliveTimeout` - how long (in milliseconds) to keep an idle HTTP keep-alive connection open before closing it. Default: `72000` (72 seconds). Should be set higher than your upstream load balancer's idle timeout to avoid race-condition resets.
@@ -447,9 +447,11 @@ fastifyOptions: { trustProxy: true }
 fastifyOptions: { trustProxy: '127.0.0.1,10.0.0.0/8' }
 fastifyOptions: { trustProxy: ['127.0.0.1', '10.0.0.0/8'] }
 
-// Custom trust logic
+// Custom trust logic. Always decide on `address`. Trusting on `hop` alone
+// (`|| hop === 1`) accepts whoever connected, which is the reason Fastify
+// dropped the bare hop-count form.
 fastifyOptions: {
-  trustProxy: (address, hop) => address === '127.0.0.1' || hop === 1,
+  trustProxy: (address, hop) => address === '127.0.0.1' && hop === 0,
 }
 ```
 

@@ -221,11 +221,20 @@ export async function refreshLockfile(
   const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   const signalHandlers = new Map<NodeJS.Signals, () => void>();
 
+  // bun-types (@types/bun >= 1.4.0) redeclares `off` and `removeListener` on
+  // `Process` for its own `memoryPressure` event. @types/node declares neither
+  // one there — both are inherited from `EventEmitter` — so bun's versions hide
+  // the base overloads rather than merging with them, and `off('exit', ...)`
+  // stops type-checking. Reaching for the `EventEmitter` view restores them.
+  // Only the types are affected; the runtime call is unchanged, and the removal
+  // still has to work on plain Node, where `off` is what it has always been.
+  const processEvents: NodeJS.EventEmitter = process;
+
   function removeRecoveryHandlers() {
-    process.off('exit', restoreBackupSync);
+    processEvents.off('exit', restoreBackupSync);
 
     for (const [signal, handler] of signalHandlers) {
-      process.off(signal, handler);
+      processEvents.off(signal, handler);
     }
   }
 
