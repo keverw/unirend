@@ -101,7 +101,7 @@ export const devDependencies = {
 };
 
 export const dependencies = {
-  lifecycleion: '^0.0.19',
+  lifecycleion: '^0.0.20',
   react: '^19.2.8',
   'react-dom': '^19.2.8',
   'react-router': '^8.3.0',
