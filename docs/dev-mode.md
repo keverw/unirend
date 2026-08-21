@@ -1,6 +1,6 @@
 # Dev Mode
 
-Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifecycleion`](https://github.com/keverw/lifecycleion/blob/master/docs/dev-mode.md) package, a single runtime global (`globalThis.__lifecycleion_is_dev__`) set once at startup and injected into every rendered HTML page so client and server always agree. Import `initDevMode()`, `getDevMode()`, and `overrideDevMode()` from `lifecycleion/dev-mode` directly in your server files or app code.
+Unirend integrates with the **Lifecycleion dev mode convention** via the [`lifecycleion`](https://github.com/keverw/lifecycleion/blob/main/docs/dev-mode.md) package, a single runtime global (`globalThis.__lifecycleion_is_dev__`) set once at startup and injected into every rendered HTML page so client and server always agree. Import `initDevMode()`, `getDevMode()`, and `overrideDevMode()` from `lifecycleion/dev-mode` directly in your server files or app code.
 
 <!-- toc -->
 

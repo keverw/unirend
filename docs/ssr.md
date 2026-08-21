@@ -1453,7 +1453,7 @@ server.pageDataHandler.register('profile', (request, reply) => {
 For separate-server deployments, where SSR and API run in different processes, you can customize the outgoing page-data request using the `resolvePageDataRequestOptions` option on the SSR server. This is a sync or async callback that runs **server-side only** and lets you:
 
 - Rewrite the target URL (e.g., for internal load balancing or per-request host selection)
-- Supply a `NodeAdapter` from `lifecycleion/http-client-node` for TLS over a private network (custom CA, mTLS, SNI override)
+- Supply a `NodeAdapter` from `lifecycleion/http-client-node` for TLS over a private network (custom CA, certificate revocation lists, mTLS, SNI override)
 - Inject or override request headers (e.g., set `Host` when dialing by IP so services that validate the host header see the right value)
 
 > **Note:** `resolvePageDataRequestOptions` is only relevant when SSR and API are on separate servers. When page data handlers live on this same SSR server, they run in-process. No HTTP request is made and this callback is never invoked.
@@ -1503,6 +1503,10 @@ import { readFileSync } from 'node:fs';
 
 const internalAdapter = new NodeAdapter({
   ca: readFileSync('/etc/ssl/internal-ca.pem'),
+  // Optional: reject a server certificate whose serial has been revoked, even
+  // though its chain and hostname still check out. A PEM file holding several
+  // concatenated CRLs is accepted as-is.
+  crl: readFileSync('/etc/ssl/internal-ca.crl.pem'),
   // When baseURL targets an IP address, set servername to the cert's SAN so
   // TLS hostname verification passes — it can't be inferred from a raw IP.
   servername: 'api.internal',
@@ -1520,6 +1524,8 @@ serveSSRBuilt({
   },
 });
 ```
+
+CRL checking is fail-closed, so it can take out healthy connections in two ways worth planning for. Every certificate in the chain needs a covering CRL, because Node checks the whole chain, so connecting through a root you did not supply a list for fails with `UNABLE_TO_GET_CRL` even when nothing was revoked. CRLs also expire, and past `nextUpdate` the handshake fails with `CRL_HAS_EXPIRED`. Refreshing on a schedule is yours to own. Build a new adapter with the fresh list and return that one, since the adapter holds the TLS settings for its connections.
 
 ### Custom API Routes
 

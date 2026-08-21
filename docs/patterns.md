@@ -67,7 +67,7 @@ See [Theme Management (Hydration-Safe)](./unirend-context.md#theme-management-hy
 
 When integrating the `LifecycleManager` (from `lifecycleion`) with a Unirend web server, request handlers and loaders often need access to database connection pools. Instead of sharing raw connection pool instances globally or attaching them directly to request objects without safety checks, you can combine the **Safe Resource Sharing via Dynamic Wrappers** pattern with a Unirend server plugin to ensure safe, zero-downtime, and resilient database access.
 
-For the core implementation of the `DatabaseConnectionManager` and the `DatabaseHelper` client wrapper, see [Safe Resource Sharing via Dynamic Wrappers](https://github.com/keverw/lifecycleion/blob/master/docs/lifecycle-manager.md#8-safe-resource-sharing-via-dynamic-wrappers) in the LifecycleManager documentation.
+For the core implementation of the `DatabaseConnectionManager` and the `DatabaseHelper` client wrapper, see [Safe Resource Sharing via Dynamic Wrappers](https://github.com/keverw/lifecycleion/blob/main/docs/lifecycle-manager.md#8-safe-resource-sharing-via-dynamic-wrappers) in the LifecycleManager documentation.
 
 ### Unirend Plugin Integration
 

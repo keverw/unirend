@@ -550,7 +550,7 @@ export class APIServerComponent extends BaseComponent {
     // Production tip: In a real application, you can also inject the LifecycleManager
     // instance and check/poll the status of other components (e.g., database, cache)
     // via manager.checkAllHealth() to determine the overall API service health.
-    // See: https://github.com/keverw/lifecycleion/blob/master/docs/lifecycle-manager.md
+    // See: https://github.com/keverw/lifecycleion/blob/main/docs/lifecycle-manager.md
     server.api.get('health', (request, _reply, params) => {
       return params.APIResponseHelpers.createAPISuccessResponse({
         request,

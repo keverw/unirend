@@ -147,13 +147,17 @@ export interface PageDataRequestOptions {
   baseURL?: string;
   /**
    * NodeAdapter from `lifecycleion/http-client-node` to use for this request.
-   * Provides TLS control: custom CA, mutual TLS, SNI servername override, and
-   * Unix socket routing. Required when connecting over a private network with
-   * a non-public CA or when dialing by IP address.
+   * Provides TLS control: custom CA, certificate revocation lists, mutual TLS,
+   * SNI servername override, and Unix socket routing. Required when connecting
+   * over a private network with a non-public CA or when dialing by IP address.
+   *
+   * Note that `crl` is fail-closed — every certificate in the chain needs a
+   * covering CRL, and an expired CRL fails the handshake even for certificates
+   * that were never revoked. Build a fresh adapter when you rotate the list.
    *
    * @example
    * import { NodeAdapter } from 'lifecycleion/http-client-node';
-   * const adapter = new NodeAdapter({ ca: myCA, servername: 'api.internal' });
+   * const adapter = new NodeAdapter({ ca: myCA, crl: myCRL, servername: 'api.internal' });
    * resolvePageDataRequestOptions: () => ({ adapter })
    */
   adapter?: NodeAdapter;
@@ -608,7 +612,13 @@ export interface HTTPSOptions {
   cert: string | Buffer | Array<string | Buffer>;
   /**
    * Optional CA certificates in PEM format
-   * Used for client certificate verification
+   *
+   * Passed straight through to Node's HTTPS server options. Node only consults
+   * it when the server asks connecting clients for a certificate, which needs
+   * `requestCert: true` — an option this interface does not expose — so on its
+   * own this verifies nothing. It also does not affect the chain the server
+   * presents; that comes from `cert`. Kept for the intermediates some setups
+   * put here rather than in `cert`.
    */
   ca?: string | Buffer | Array<string | Buffer>;
   /**
@@ -1275,7 +1285,8 @@ interface ServeSSROptions<
   serverLabel?: string;
   /**
    * Rewrite the API base URL, set a custom NodeAdapter (for private-network
-   * TLS), or inject override headers (e.g. `Host` when dialing by IP).
+   * TLS: custom CA, CRLs, mTLS, SNI), or inject override headers (e.g. `Host`
+   * when dialing by IP).
    * Only fires in separate-server deployments — co-located handlers on the
    * same SSR server instance short-circuit in-process, bypassing this
    * callback entirely.

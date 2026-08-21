@@ -143,8 +143,9 @@ type SSRRequestInternalState = FastifyRequest & {
  *
  * When no adapter is provided, HTTPClient uses its built-in Node.js transport
  * (http/https modules) — fine for standard setups. Pass a NodeAdapter from
- * resolvePageDataRequestOptions when you need TLS control (custom CA, mTLS,
- * SNI servername) or are dialing by IP address.
+ * resolvePageDataRequestOptions when you need TLS control (custom CA,
+ * certificate revocation lists, mTLS, SNI servername) or are dialing by IP
+ * address.
  *
  * The body is passed as an object and serialized once by lifecycleion — no
  * JSON stringify/parse round-trip like the browser fetch path would require.
